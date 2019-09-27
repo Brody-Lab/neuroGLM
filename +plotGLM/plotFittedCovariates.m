@@ -1,8 +1,12 @@
 function plotFittedCovariates(stats,varargin)
     p=inputParser;
-    p.addParameter('matchylim',false,@(x)validateattributes(x,{'logical'},{'scalar'}));
+    p.addParameter('matchylim',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
+    p.addParameter('ilink',@(x)x,@(x)validateattributes(x,{'function_handle'},{''}));
     p.parse(varargin{:});
     params=p.Results;
+    if ismember('link',p.UsingDefaults) && isfield(stats.params,'distribution') && strcmp(stats.params.distribution,'poisson')
+        params.ilink = @(x)exp(x);
+    end  
     covars = {stats.dspec.covar.label};
     matches={'left','right'};
     groups = group_covars(covars,matches);
@@ -17,9 +21,9 @@ function plotFittedCovariates(stats,varargin)
             label = groups{kCov}{j};
             subplot(n_subplot_columns,n_subplot_columns, kCov);hold on;
             if length(groups{kCov})==1
-                shadedErrorBar(stats.ws.(label).tr/1000, stats.ws.(label).data, sqrt(stats.wvars.(label).data));
+                shadedErrorBar(stats.ws.(label).tr/1000, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data))-params.ilink(stats.ws.(label).data));
             else
-                h(count) = shadedErrorBar(stats.ws.(label).tr/1000, stats.ws.(label).data, sqrt(stats.wvars.(label).data),color.(matches{j}));  
+                h(count) =  shadedErrorBar(stats.ws.(label).tr/1000, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data))-params.ilink(stats.ws.(label).data),color.(matches{j}));  
                 if count>1
                     h(count).patch.FaceAlpha=0.5;
                     if strcmp(label,'left_clicks') || strcmp(label,'right_clicks')
@@ -29,7 +33,7 @@ function plotFittedCovariates(stats,varargin)
                     end
                 end
             end
-            mmx = minmax([mmx(:);stats.ws.(label).data(:)]);            
+            mmx = max([mmx(:);params.ilink(stats.ws.(label).data(:))]);            
             title_str = strrep(groups{kCov}{j},'_',' ');
             title_str = strrep(title_str,matches{j},'');
             title(title_str);
@@ -38,7 +42,13 @@ function plotFittedCovariates(stats,varargin)
         end
     end
     if params.matchylim
-        matchylim(gcf,'ylim',[-1 1]*max(abs(mmx))*1.1);
+        try
+            if params.ilink(1)~=1
+                matchylim(gcf,'ylim',[0 1]*max(abs(mmx))*1.1);
+            else
+                matchylim(gcf,'ylim',[-1 1]*max(abs(mmx))*1.1);            
+            end
+        end
     end
     set(gcf,'position',[ 1000.3          221       1101.3         1110]);
 end
