@@ -39,7 +39,8 @@ if nargin < 3; desc = covLabel; end
 if nargin < 4; stimHandle = []; end
 
 if isfield(dspec.idxmap, covLabel)
-    error('Label already added as a covariate');
+    warning('%s already added as a covariate.',covLabel);
+    return
 end
 
 newIdx = numel(fieldnames(dspec.idxmap)) + 1;
