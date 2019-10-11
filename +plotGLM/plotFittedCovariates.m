@@ -1,7 +1,8 @@
 function plotFittedCovariates(stats,varargin)
     p=inputParser;
     p.addParameter('matchylim',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
-    p.addParameter('ilink',@(x)x,@(x)validateattributes(x,{'function_handle'},{''}));
+    p.addParameter('ilink',@(x)exp(x),@(x)validateattributes(x,{'function_handle'},{}));
+    p.addParameter('showOffClicks',true);
     p.parse(varargin{:});
     params=p.Results;
     if ismember('link',p.UsingDefaults) && isfield(stats.params,'distribution') && strcmp(stats.params.distribution,'poisson')
@@ -14,18 +15,27 @@ function plotFittedCovariates(stats,varargin)
     color.right='r';
     n_subplot_columns = ceil(sqrt(length(groups)));
     mmx=[];
+    group_count=0;
     for kCov = 1:length(groups)
         count=0;
+        if contains(groups{kCov}{1},'click') && params.showOffClicks
+            continue
+        end
+        group_count=group_count+1;
         for j=1:length(groups{kCov})     
             count=count+1;
             label = groups{kCov}{j};
-            subplot(n_subplot_columns,n_subplot_columns, kCov);hold on;
+            if contains(label,'click') && params.showOffClicks
+                continue
+            end
+            %subplot(n_subplot_columns,n_subplot_columns,group_count);hold on;
+            subplot(2,3,group_count);
             if length(groups{kCov})==1
-                shadedErrorBar(stats.ws.(label).tr/1000, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data))-params.ilink(stats.ws.(label).data));
+                shadedErrorBar(stats.ws.(label).tr/1000, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data(:)'))-params.ilink(stats.ws.(label).data));
             else
-                h(count) =  shadedErrorBar(stats.ws.(label).tr/1000, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data))-params.ilink(stats.ws.(label).data),color.(matches{j}));  
+                h(count) =  shadedErrorBar(stats.ws.(label).tr/1000, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data(:)'))-params.ilink(stats.ws.(label).data),color.(matches{j}));  
                 if count>1
-                    h(count).patch.FaceAlpha=0.5;
+                    h(count).patch.FaceAlpha=0.55555;
                     if strcmp(label,'left_clicks') || strcmp(label,'right_clicks')
                         legend([h.mainLine],{'left clicks','right clicks'})                
                     else
@@ -39,8 +49,42 @@ function plotFittedCovariates(stats,varargin)
             title(title_str);
             set(gca,'xlim',minmax(stats.ws.(label).tr/1000));
             xlabel('time (s)');
+            ylabel('Gain');            
         end
     end
+    fig=gcf;
+    if params.showOffClicks
+        figure(1253);
+        clf;
+        subplot(1,3,1);
+        shadedErrorBar(stats.ws.stereo_click.tr/1000, params.ilink(stats.ws.stereo_click.data), params.ilink(stats.ws.stereo_click.data+sqrt(stats.wvars.stereo_click.data(:)'))-params.ilink(stats.ws.stereo_click.data));        
+        title('Stereo Click');
+        xlabel('Time (s)');
+        ylabel('Gain');        
+        subplot(1,3,2);
+        colors=jet(6);
+        for i=3:-1:1 % right
+            label = ['left_clicks',num2str(i)];
+            h(i)=shadedErrorBar(stats.ws.(label).tr/1000, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data(:)'))-params.ilink(stats.ws.(label).data),{'color',colors(3-i+1,:)});                    
+            h(i).patch.FaceAlpha=0;
+            title('Left Clicks');
+            xlabel('Time (s)');
+            ylabel('Gain');            
+        end
+        legend([h.mainLine],{'most adapted third','middle adapted third','least adapted third'});
+        subplot(1,3,3);
+        for i=3:-1:1 % right
+            label = ['right_clicks',num2str(i)];
+            h(i)=shadedErrorBar(stats.ws.(label).tr/1000, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data(:)'))-params.ilink(stats.ws.(label).data),{'color',colors(i+3,:)});                    
+            h(i).patch.FaceAlpha=0;            
+            title('Right Clicks');
+            xlabel('Time (s)');
+            ylabel('Gain');
+        end
+        legend([h.mainLine],{'most adapted third','middle adapted third','least adapted third'});
+    end
+    matchylim(gcf);
+    figure(fig);
     if params.matchylim
         try
             if params.ilink(1)~=1
