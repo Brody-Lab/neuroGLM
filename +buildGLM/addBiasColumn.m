@@ -15,5 +15,9 @@ if isfield(dm, 'biasCol')
     return
 end
 
-dm.X = [ones(size(dm.X, 1), 1), dm.X];
+if ~isa(dm.X,'gpuArray')
+    dm.X = [ones(size(dm.X, 1), 1), dm.X];
+else
+    dm.X = [gpuArray.ones(size(dm.X, 1), 1), dm.X];    
+end
 dm.biasCol = 1; % indicating that the first column is the bias column

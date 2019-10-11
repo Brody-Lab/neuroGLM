@@ -5,9 +5,9 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     % Pillow lab.
     %% parse and validate inputs
     p=inputParser;
+    p.KeepUnmatched=true;    
     p.addParameter('cellno',[]);
     p.addParameter('kfold',[]);
-    p.KeepUnmatched=true;
     p.addParameter('save',false,@(x)validateattributes(x,{'logical'},{'scalar'}));
     p.addParameter('use_parallel',false,@(x)validateattributes(x,{'logical'},{'scalar'}));    
     p.addParameter('maxIter',25,@(x)validateattributes(x,{'numeric'},{'positive','scalar'}));
@@ -15,6 +15,8 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     p.addParameter('minSpkParamRatio',0,@(x)validateattributes(x,{'numeric'},{'scalar','positive'}));
     p.addParameter('separate_clicks_by_side',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
     p.addParameter('distribution','poisson',@(x)validatestring(x,{'poisson','normal'}));
+    p.addParameter('save_path','');
+    p.addParameter('useGPU',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
     p.parse(varargin{:});
     params=p.Results;
     %% make rawData and expt structures (i.e. put event times and spike times into neuroGLM format)
@@ -22,7 +24,7 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     expt=build_expt_for_pbups(rawData); 
     nTrials = rawData.nTrials;
     if isempty(params.cellno)
-        params.cellno=1:length(Cells.tt);
+        params.cellno=1:rawData.param.ncells;
         if isempty(params.cellno)
             warning('No cells in Cells!');
             return
@@ -32,13 +34,17 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     %% testing save
     if params.save
         fprintf('Testing save now before spending a long time fitting... ');
-        mat_file_name = strrep(Cells.mat_file_name,'Cells','glmfits_save_test');
+        if isempty(params.save_path)
+            [a,b,c] = fileparts(Cells.mat_file_name);
+        else
+            [a,b,c] = fileparts(params.save_path);            
+        end
+        mat_file_name = fullfile(a,[b,'_glmfits_save_test.mat']);
         test=[];
         save(mat_file_name,'test','-v7.3');
         delete(mat_file_name);   
-        fprintf(' Success!\n');
+        fprintf(' Success! Saved and deleted %s.\n',mat_file_name);
     end    
-    cell_count=0;    
     %% initialize dspec elements that are common to all cells
     % dspec states what the regressors are in your model and how they are parameterized    
     covariates = rawData.timings;
@@ -59,11 +65,10 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     dspec = buildGLM.initDesignSpec(expt);    
     dspec = build_dspec_for_pbups(dspec,covariates,[]);
     %% loop over cells
-    n_cells = length(params.cellno);
-    for c=1:n_cells
+    for c=1:length(params.cellno)
         S=struct();
         S.cellno = params.cellno(c);          
-        fprintf('Cell id %g (%g of %g to fit):\n',S.cellno,c,length(params.cellno));
+        fprintf('Cell id %g (%g of %g to fit):\n',S.cellno,c,rawData.param.ncells);
         %% determine if cell is responsive enough to fit
         S.responsiveFrac = sum(arrayfun(@(x)numel(x.(['sptrain',num2str(S.cellno)])),expt.trial)>0)./nTrials;        
         if params.minResponsiveFrac>0
@@ -76,29 +81,45 @@ function stats = fit_glm_to_Cells(Cells,varargin)
         S.dspec = build_dspec_for_pbups(dspec,'spike_history',S.cellno); 
         dm = buildGLM.compileSparseDesignMatrix(S.dspec, 1:nTrials);  
         dm = buildGLM.removeConstantCols(dm);
-        Y = full(buildGLM.getBinnedSpikeTrain(expt, ['sptrain',num2str(S.cellno)], dm.trialIndices));  
+        stats(c).Y = full(buildGLM.getBinnedSpikeTrain(expt, ['sptrain',num2str(S.cellno)], dm.trialIndices)); 
+        stats(c).cellno = S.cellno;
+        continue
         %% determine if spike/parameter ratio is acceptable
         S.totalSpks = sum(Y);
         S.spkParamRatio = S.totalSpks ./ (size(dm.X,2)+1);   
+        fields =fieldnames(S);
+        for f=1:length(fields)
+            stats(c).(fields{f}) = S.(fields{f});
+        end        
+        stats(c).Y=Y;
         if params.minSpkParamRatio>0
             if S.spkParamRatio < params.minSpkParamRatio
                 fprintf('Cell %g only has %g spikes to %g params to be fit. Moving on without fitting.\n',S.cellno,S.totalSpks,size(dm.X,2)+1);
-                fields =fieldnames(S);
-                for f=1:length(fields)
-                    stats(c).(fields{f}) = S.(fields{f});
-                end
                 continue
             end
+        end    
+        if rank(dm.X) < size(dm.X,2)
+            warning('Design matrix is not full rank for cell %g. Skipping cell.',S.cellno);
+            continue;
         end        
         %% Fitting UN cross-validated model
-        tic;fprintf('   Fitting UN cross-validated model ... ');                    
-        [~, S.dev, stat_temp] = glmfit(dm.X, Y, params.distribution);
-        %tic;B=pinv(X'*X) * (X'*Y);toc;
+        tic;fprintf('   Fitting UN cross-validated model ... ');   
+        options = statset('MaxIter',params.maxIter);        
+        if params.useGPU
+            dm.X = gpuArray(dm.X);
+            Y = gpuArray(Y);
+            bias_column_fun = @(x)[gpuArray.ones(size(x,1),1),x];
+        else
+            bias_column_fun = @(x)[ones(size(x,1),1),x];
+        end
+        S.init_beta = gather(regress(bias_column_fun(dm.X),Y));
+        [~, S.dev, stat_temp] = glmfit(dm.X, Y, params.distribution,'options',options);
         fields_to_copy = fieldnames(stat_temp);
         nf=length(fields_to_copy);
         for f=1:nf
-            S.(fields_to_copy{f}) = stat_temp.(fields_to_copy{f});
-        end       
+            S.(fields_to_copy{f}) = gather(stat_temp.(fields_to_copy{f}));
+        end     
+        S.dev=gather(S.dev);
         % compute model predicted firing rates
         switch params.distribution
             case 'normal'
@@ -106,7 +127,8 @@ function stats = fit_glm_to_Cells(Cells,varargin)
             case 'poisson'
                 link = 'log';
         end
-        S.Yhat=glmval(S.beta,dm.X,link,S.beta);
+        S.Yhat=glmval(S.beta,gather(dm.X),link,S.beta);
+        S.Yhat_init_beta = gather([ones(size(dm.X,1),1),dm.X]*S.init_beta);
         fprintf('took %s.\n',timestr(toc));
         % reconstruct fitted kernels by weighted combination of basis functions
         [S.ws,S.wvars] = buildGLM.combineWeights(buildGLM.addBiasColumn(dm), S.beta , S.covb);
@@ -127,43 +149,60 @@ function stats = fit_glm_to_Cells(Cells,varargin)
                 getSpkIdxFun = @(trial_idx)buildGLM.getSpikeIndicesforTrial(expt,trial_idx);        
                 fprintf('   Fitting under %g-fold cross-validation ... ',params.kfold);    
                 tic;
-                [Xtrain,Ytrain,Xtest] = deal(cell(1,params.kfold));
-                for i=1:params.kfold
-                    train_idx = getSpkIdxFun(S.cvp.training(i));
-                    test_idx = getSpkIdxFun(S.cvp.test(i));
-                    Xtrain{i} = dm.X(train_idx,:);
-                    Ytrain{i} = Y(train_idx);
-                    Xtest{i} = dm.X(test_idx,:);
+                for i=params.kfold:-1:1
+                    train_idx{i} = getSpkIdxFun(S.cvp.training(i));
+                    test_idx{i} = getSpkIdxFun(S.cvp.test(i));
                 end
-                options = statset('MaxIter',params.maxIter);
-                [cv_stats,dev]=deal([]);
+                clear dev cv_stats init_beta
                 if params.use_parallel
-                    for i=1:params.kfold
-                        [~, dev(i), cv_stats(i)] = glmfit(Xtrain{i}, Ytrain{i}, 'poisson','options',options);  
+                    X=dm.X;
+                    parfor i=1:params.kfold                       
+                        [~, dev(i), cv_stats(i)] = glmfit(X(train_idx{i},:),Y(train_idx{i}), 'poisson','options',options);  
+                        init_beta{i} = gather(regress(bias_column_fun(X(train_idx{i},:)),Y(train_idx{i})));                                                     
                     end    
                 else
-                    for i=1:params.kfold
-                        [~, dev(i), cv_stats(i)] = glmfit(Xtrain{i}, Ytrain{i}, 'poisson','options',options);  
+                    for i=params.kfold:-1:1
+                        [~, dev(i), cv_stats(i)] = glmfit(dm.X(train_idx{i},:),Y(train_idx{i}), 'poisson','options',options);  
+                        init_beta{i} = gather(regress(bias_column_fun(dm.X(train_idx{i},:)),Y(train_idx{i})));                                                     
                     end                  
                 end
                 cv_stats = rmfield(cv_stats,{'resid','residp','residd','resida'}); % these take up A TON of space, and could always be generated if needed
                 for i=1:params.kfold
-                    cv_stats(i).dev=dev(i);
-                    cv_stats(i).Yhat=glmval(cv_stats(i).beta,Xtest{i},'log',cv_stats(i));
+                    cv_stats(i).dev = dev(i);
+                    fields = fieldnames(cv_stats);
+                    for f=1:length(fields)
+                        cv_stats(i).(fields{f}) = gather(cv_stats(i).(fields{f}));
+                    end                    
+                    cv_stats(i).Yhat=glmval(cv_stats(i).beta,gather(dm.X(test_idx{i},:)),'log',cv_stats(i));
+                    cv_stats(i).init_beta = init_beta{i};
+                    cv_stats(i).Yhat_init_beta = gather([ones(size(dm.X(test_idx{i},:),1),1),dm.X(test_idx{i},:)]*cv_stats(i).init_beta);                    
                     [cv_stats(i).ws,cv_stats(i).wvars] =combineWeightFun(cv_stats(i).beta,cv_stats(i).covb);
                 end
                 S.cv_stats=cv_stats;
                 fprintf('Took %s.\n',timestr(toc));            
             end
         end
+        S.params = params;        
+        S.covariate_stats = get_covariate_stats(S);        
         fields =fieldnames(S);
         for f=1:length(fields)
             stats(c).(fields{f}) = S.(fields{f});
         end
     end
     if params.save && isfield(stats,'dev')
-        mat_file_name = strrep(Cells.mat_file_name,'Cells','glmfits');
-        save(mat_file_name,'stats','-v7.3');
-        fprintf('Saved fit stats successfully to %s.\n',mat_file_name);
+        if isempty(params.save_path)
+            mat_file_name = strrep(mat_file_name,'glmfits_save_test','glmfits');
+            save(mat_file_name,'stats','-v7.3');
+            fprintf('Saved fit stats successfully to %s.\n',mat_file_name);
+        else
+            mat_file_name = params.save_path;
+            save(mat_file_name,'stats','-v7.3');
+            fprintf('Saved fit stats successfully to %s.\n',mat_file_name);            
+        end
     end
+end
+
+function beta = regress(x,y)
+    [Q,R] = qr(x,0);
+    beta=R\(Q'*y);
 end
