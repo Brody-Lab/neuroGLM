@@ -24,7 +24,7 @@ function dspec = build_dspec_for_pbups(dspec,covariates,cellno)
     if ischar(covariates)
         covariates={covariates};
     end
-    
+    covariates=unique(regexprep(covariates,'(.*[a-z])[0-9].*','$1'));     % remove trailing numbers because i search through all matching timing events anyway
     %% define click basis
     % good compromise that can explain posterior (fast) and anterior striatum (slow) click responses. also now with the offset it starts at zero.
     click_basis=basisFactory.makeNonlinearRaisedCos(6,1,[20 399],10);   
@@ -32,7 +32,7 @@ function dspec = build_dspec_for_pbups(dspec,covariates,cellno)
     %% loop over covariates
     for i=1:length(covariates)
         
-        switch regexprep(covariates{i},'(.*[a-z])[0-9].*','$1') % remove trailing numbers
+        switch covariates{i} 
             
             case 'spike_history' 
                 dspec = buildGLM.addCovariateSpiketrain(dspec, 'spike_history', ['sptrain',num2str(cellno)], 'History filter');

@@ -68,9 +68,13 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
             end
         end
         rawData.trial(t).gamma = Cells.Trials.gamma(original_t);
-        rawData.trial(t).stim_dur = Cells.Trials.stim_dur_s_theoretical(original_t);
+        if isfield(Cells.Trials,'stim_dur_s_theoretical')
+            rawData.trial(t).stim_dur = Cells.Trials.stim_dur_s_theoretical(original_t);
+        else
+            rawData.trial(t).stim_dur = Cells.Trials.stim_dur_s(original_t);            
+        end
         rawData.trial(t).pokedR = Cells.Trials.pokedR(original_t);
-        for c = 1:length(Cells.tt)
+        for c = 1:length(Cells.PETH.cpoke_in)
             rawData.trial(t).(['sptrain',num2str(c)]) = round( (Cells.spike_time_s.(params.ref_event){c}{original_t} - params.spikeWindowS(1) ) * params.samplingFreq);
         end
         %% clicks (stereo click gets its own covariate, and depending on the value of nclickbins
@@ -138,5 +142,5 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
     end
     rawData.param.samplingFreq = params.samplingFreq; % Hz
     rawData.param.aligned_to = params.ref_event;
-    rawData.param.ncells = length(Cells.tt);
+    rawData.param.ncells = length(Cells.PETH.cpoke_in);
 end
