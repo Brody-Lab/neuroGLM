@@ -81,9 +81,8 @@ function stats = fit_glm_to_Cells(Cells,varargin)
         S.dspec = build_dspec_for_pbups(dspec,'spike_history',S.cellno); 
         dm = buildGLM.compileSparseDesignMatrix(S.dspec, 1:nTrials);  
         dm = buildGLM.removeConstantCols(dm);
-        stats(c).Y = full(buildGLM.getBinnedSpikeTrain(expt, ['sptrain',num2str(S.cellno)], dm.trialIndices)); 
-        stats(c).cellno = S.cellno;
-        continue
+        Y = full(buildGLM.getBinnedSpikeTrain(expt, ['sptrain',num2str(S.cellno)], dm.trialIndices)); 
+        S.Y=Y;
         %% determine if spike/parameter ratio is acceptable
         S.totalSpks = sum(Y);
         S.spkParamRatio = S.totalSpks ./ (size(dm.X,2)+1);   
@@ -91,7 +90,6 @@ function stats = fit_glm_to_Cells(Cells,varargin)
         for f=1:length(fields)
             stats(c).(fields{f}) = S.(fields{f});
         end        
-        stats(c).Y=Y;
         if params.minSpkParamRatio>0
             if S.spkParamRatio < params.minSpkParamRatio
                 fprintf('Cell %g only has %g spikes to %g params to be fit. Moving on without fitting.\n',S.cellno,S.totalSpks,size(dm.X,2)+1);
