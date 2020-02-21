@@ -11,15 +11,21 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     p.addParameter('save',false,@(x)validateattributes(x,{'logical'},{'scalar'}));
     p.addParameter('use_parallel',false,@(x)validateattributes(x,{'logical'},{'scalar'}));    
     p.addParameter('maxIter',25,@(x)validateattributes(x,{'numeric'},{'positive','scalar'}));
-    p.addParameter('minResponsiveFrac',0,@(x)validateattributes(x,{'numeric'},{'scalar','positive','<',1}));
-    p.addParameter('minSpkParamRatio',0,@(x)validateattributes(x,{'numeric'},{'scalar','positive'}));
+    p.addParameter('minResponsiveFrac',0.5,@(x)validateattributes(x,{'numeric'},{'scalar','positive','<',1}));
+    p.addParameter('minSpkParamRatio',10,@(x)validateattributes(x,{'numeric'},{'scalar','positive'}));
     p.addParameter('separate_clicks_by_side',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
     p.addParameter('distribution','poisson',@(x)validatestring(x,{'poisson','normal'}));
     p.addParameter('save_path','');
     p.addParameter('useGPU',false,@(x)validateattributes(x,{'logical'},{'scalar'}));
-    p.addParameter('bin_size_ms',4);
+    p.addParameter('bin_size_ms',1);
     p.parse(varargin{:});
     params=p.Results;
+    %% load Cells file if a filename is passed
+    if ischar(Cells) && exist(Cells,'file')
+        mat_file_name = Cells;
+        Cells = load(Cells);       
+        Cells.mat_file_name = Cells;
+    end
     %% make rawData and expt structures (i.e. put event times and spike times into neuroGLM format)
     rawData = make_glm_trials_from_Cells(Cells,varargin{:}); 
     expt=build_expt_for_pbups(rawData,params.bin_size_ms); 
@@ -42,7 +48,7 @@ function stats = fit_glm_to_Cells(Cells,varargin)
         end
         mat_file_name = fullfile(a,[b,'_glmfits_save_test.mat']);
         test=[];
-        save(mat_file_name,'test','-v7.3');
+        save(mat_file_name,'test','-v7');
         delete(mat_file_name);   
         fprintf(' Success! Saved and deleted %s.\n',mat_file_name);
     end    
@@ -112,6 +118,7 @@ function stats = fit_glm_to_Cells(Cells,varargin)
         else
             bias_column_fun = @(x)[ones(size(x,1),1),x];
         end
+        %% below is code in dev for pass-glm fitting
 %         %%
 %         Xtrain = bias_column_fun(dm.X);
 %         spstrain = Y;
@@ -130,6 +137,7 @@ function stats = fit_glm_to_Cells(Cells,varargin)
         %%
         options = statset('MaxIter',params.maxIter);                
         tic;S.init_beta = gather(regress(bias_column_fun(dm.X),Y));toc
+        %% below is code in dev for using non-canonical link functions       
 %         link.Inverse = @(x)max(x/50,x);
 %         link.Link = @(x)min(x,50*x);
 %         link.Derivative = @(x)delta(x);        
@@ -223,11 +231,11 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     if params.save && isfield(stats,'dev')
         if isempty(params.save_path)
             mat_file_name = strrep(mat_file_name,'glmfits_save_test','glmfits');
-            save(mat_file_name,'stats','-v7.3');
+            save(mat_file_name,'stats','-v7');
             fprintf('Saved fit stats successfully to %s.\n',mat_file_name);
         else
             mat_file_name = params.save_path;
-            save(mat_file_name,'stats','-v7.3');
+            save(mat_file_name,'stats','-v7');
             fprintf('Saved fit stats successfully to %s.\n',mat_file_name);            
         end
     end
@@ -238,10 +246,10 @@ function beta = regress(x,y)
     beta=R\(Q'*y);
 end
 
-        function y = delta(x)
-            if x<0
-                y=50;
-            else
-                y=1;
-            end
-        end
+function y = delta(x)
+    if x<0
+        y=50;
+    else
+        y=1;
+    end
+end

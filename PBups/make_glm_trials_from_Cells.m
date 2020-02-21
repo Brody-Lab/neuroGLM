@@ -12,7 +12,7 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
     p.addParameter('samplingFreq',1e3,@(x)validateattributes(x,{'numeric'},{'scalar'})); %Hz
     p.addParameter('removeViolations',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
     p.addParameter('removeStimTrials',true,@(x)validateattributes(x,{'logical'},{'scalar'})); 
-    p.addParameter('nClickBins',1,@(x)validateattributes(x,{'numeric'},{'scalar','positive'}));
+    p.addParameter('nClickBins',3,@(x)validateattributes(x,{'numeric'},{'scalar','positive'}));
     p.addParameter('separate_stereo_click',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
     p.addParameter('separate_clicks_by','latency',@(x)validatestring(x,{'latency','time'}));    
     
@@ -74,7 +74,7 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
             rawData.trial(t).stim_dur = Cells.Trials.stim_dur_s(original_t);            
         end
         rawData.trial(t).pokedR = Cells.Trials.pokedR(original_t);
-        for c = 1:length(Cells.PETH.cpoke_in)
+        for c = 1:length(Cells.spike_time_s.(params.ref_event))
             rawData.trial(t).(['sptrain',num2str(c)]) = round( (Cells.spike_time_s.(params.ref_event){c}{original_t} - params.spikeWindowS(1) ) * params.samplingFreq);
         end
         %% clicks (stereo click gets its own covariate, and depending on the value of nclickbins
@@ -142,5 +142,5 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
     end
     rawData.param.samplingFreq = params.samplingFreq; % Hz
     rawData.param.aligned_to = params.ref_event;
-    rawData.param.ncells = length(Cells.PETH.cpoke_in);
+    rawData.param.ncells = length(Cells.spike_time_s.(params.ref_event));
 end
