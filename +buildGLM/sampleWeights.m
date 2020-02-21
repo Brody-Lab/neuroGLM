@@ -32,35 +32,26 @@ function w_samples = sampleWeights(dm, w , wcov, varargin)
         error('weight covariance matrix must be positive definite');
     end
     covar_idx = ismember({dm.dspec.covar.label},params.covariates);
-    dm.dspec.covar = dm.dspec.covar(covar_idx);
-    if nargout>1 && ~covSupplied
-        error('You must supply a weight covariance matrix as the third argument.');
-    end
+    dspec.covar = dspec.covar(covar_idx);
 
     if isfield(dm, 'biasCol') % undo z-score operation
         w(dm.biasCol) = [];
-        if covSupplied
-            params.wcov(dm.biasCol,:)=[];
-            params.wcov(:,dm.biasCol)=[];
-        end
+        params.wcov(dm.biasCol,:)=[];
+        params.wcov(:,dm.biasCol)=[];
     end
 
     if isfield(dm, 'zscore') % undo z-score operation
         w = (w .* dm.zscore.sigma(:)) + dm.zscore.mu(:);
-        if covSupplied
-            params.wcov = (params.wcov .* dm.zscore.sigma(:)) + dm.zscore.mu(:);
-        end
+        params.wcov = (params.wcov .* dm.zscore.sigma(:)) + dm.zscore.mu(:);
     end
 
     if isfield(dm, 'constCols') % put back the constant columns
         w2 = zeros(dm.dspec.edim, 1);
         w2(~dm.constCols) = w; % first term is bias
         w = w2;
-        if covSupplied
-            wcov2 = zeros(dm.dspec.edim);
-            wcov2(~dm.constCols,~dm.constCols)=params.wcov;
-            params.wcov=wcov2;
-        end
+        wcov2 = zeros(dm.dspec.edim);
+        wcov2(~dm.constCols,~dm.constCols)=params.wcov;
+        params.wcov=wcov2;
     end
 
     if numel(w) ~= dm.dspec.edim
@@ -75,9 +66,7 @@ function w_samples = sampleWeights(dm, w , wcov, varargin)
 
     startIdx = [1 (cumsum([dspec.covar(:).edim]) + 1)];
 
-    if covSupplied
-        w=mvnrnd(w,params.wcov,params.nsamples);
-    end
+    w=mvnrnd(w,params.wcov,params.nsamples);
     for kCov = 1:numel(dspec.covar)
         covar = dspec.covar(kCov);
         basis = covar.basis;

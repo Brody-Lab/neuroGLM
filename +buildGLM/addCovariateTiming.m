@@ -36,7 +36,7 @@ else
 end
 
 binfun = dspec.expt.binfun;
-stimHandle = @(trial, expt) basisFactory.deltaStim(binfun(trial.(stimLabel)), binfun(trial.duration));
+stimHandle = @(trial) basisFactory.deltaStim(binfun(trial.(stimLabel)), binfun(trial.duration));
 
 dspec = buildGLM.addCovariate(dspec, covLabel, desc, stimHandle, varargin{:});
 dspec.stimLabel = stimLabel;

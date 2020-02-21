@@ -14,10 +14,15 @@ function dm = compileSparseDesignMatrix(dspec, trialIndices)
             if isfield(covar, 'cond') && ~isempty(covar.cond) && ~covar.cond(expt.trial(k))
                 continue;
             end       
-            stim = covar.stim(expt.trial(k), trialT); % either dense or sparse
+            stim = covar.stim(expt.trial(k)); % either dense or sparse
             stim = full(stim);
             if isfield(covar, 'basis') && ~isempty(covar.basis)
-                dm.X(ndx, sidx) = basisFactory.convBasis(stim, covar.basis, covar.offset);
+                switch covar.basis.type
+                    case 'makeNonlinearRaisedCos'
+                        dm.X(ndx, sidx) = basisFactory.convBasis(stim, covar.basis, covar.offset);
+                    case 'raised cosine@makeSmoothTemporalBasis'
+                        dm.X(ndx, sidx) = basisFactory.convBasis(stim, covar.basis, covar.basis.param.binfun(covar.offset));                        
+                end
             else
                 dm.X(ndx, sidx) = stim;
             end

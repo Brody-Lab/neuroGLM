@@ -1,6 +1,6 @@
-function expt = build_expt_for_pbups(rawData,varargin)
+function expt = build_expt_for_pbups(rawData,bin_size_ms)
     % rawData must be in units of ms
-    expt = buildGLM.initExperiment('ms', 1, [rawData.param.rat,', ',rawData.param.sess_date],rawData.param);
+    expt = buildGLM.initExperiment('ms', bin_size_ms, [rawData.param.rat,', ',rawData.param.sess_date],rawData.param);
     for f=1:length(rawData.timings)
         if isfield(rawData.trial,rawData.timings{f})
             expt = buildGLM.registerTiming(expt,rawData.timings{f},rawData.timings{f});

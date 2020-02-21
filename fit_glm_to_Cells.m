@@ -16,12 +16,13 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     p.addParameter('separate_clicks_by_side',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
     p.addParameter('distribution','poisson',@(x)validatestring(x,{'poisson','normal'}));
     p.addParameter('save_path','');
-    p.addParameter('useGPU',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
+    p.addParameter('useGPU',false,@(x)validateattributes(x,{'logical'},{'scalar'}));
+    p.addParameter('bin_size_ms',4);
     p.parse(varargin{:});
     params=p.Results;
     %% make rawData and expt structures (i.e. put event times and spike times into neuroGLM format)
     rawData = make_glm_trials_from_Cells(Cells,varargin{:}); 
-    expt=build_expt_for_pbups(rawData); 
+    expt=build_expt_for_pbups(rawData,params.bin_size_ms); 
     nTrials = rawData.nTrials;
     if isempty(params.cellno)
         params.cellno=1:rawData.param.ncells;
@@ -83,6 +84,7 @@ function stats = fit_glm_to_Cells(Cells,varargin)
         dm = buildGLM.removeConstantCols(dm);
         Y = full(buildGLM.getBinnedSpikeTrain(expt, ['sptrain',num2str(S.cellno)], dm.trialIndices)); 
         S.Y=Y;
+        S.dm=dm;
         %% determine if spike/parameter ratio is acceptable
         S.totalSpks = sum(Y);
         S.spkParamRatio = S.totalSpks ./ (size(dm.X,2)+1);   
@@ -110,8 +112,39 @@ function stats = fit_glm_to_Cells(Cells,varargin)
         else
             bias_column_fun = @(x)[ones(size(x,1),1),x];
         end
-        S.init_beta = gather(regress(bias_column_fun(dm.X),Y));
-        [~, S.dev, stat_temp] = glmfit(dm.X, Y, params.distribution,'options',options);
+%         %%
+%         Xtrain = bias_column_fun(dm.X);
+%         spstrain = Y;
+%         dtSp=0.001;
+%         nparams = size(Xtrain,2);
+%         Cinv = 1*eye(nparams); Cinv(1,1)=0;        
+%         xlim = [0,3]; % interval of polynomial approximation
+%         dx = 0.01; % parameter for computing polynomial coefficients. generally found this to be sufficient in all applications.
+%         what_cheby = compute_chebyshev(@(x) exp(x),xlim,dx); % computing the polynomial coefficients
+%         a = what_cheby(1); b = what_cheby(2); c = what_cheby(3); % get the coefficients
+%         w_hat_exp = (2.0*c*dtSp*Xtrain'*Xtrain + Cinv)\(Xtrain'*spstrain-b*dtSp*sum(Xtrain,1)'); % compute weights using approximation        
+%         %%
+%         options = optimoptions('fminunc','Algorithm','quasi-newton','SpecifyObjectiveGradient',true,'MaxIterations',1000);
+%         tic;
+%         w = fminunc(@(w) negloglik_grad(w,spstrain,Xtrain,dtSp),zeros(size(Xtrain,2),1),options);        toc;
+        %%
+        options = statset('MaxIter',params.maxIter);                
+        tic;S.init_beta = gather(regress(bias_column_fun(dm.X),Y));toc
+%         link.Inverse = @(x)max(x/50,x);
+%         link.Link = @(x)min(x,50*x);
+%         link.Derivative = @(x)delta(x);        
+%          link.Inverse = @(x)log(1+exp(x));
+%          link.Link = @(x)log(exp(x)-1);
+%          link.Derivative = @(x) ( 1./(1-exp(-x)));
+% %         profile off;tic;mdl = fitglm(dm.X,Y,'Intercept',true,'Distribution','poisson','DispersionFlag',false,'Options',statset('UseParallel',true));        toc;
+%         link.Link=@(x)x;
+%         link.Inverse = @(x)x;
+%         link.Derivative = @(x)1;
+%         link.Link=@(x)log(x);
+%         link.Inverse=@(x)exp(x);
+%         link.Derivative = @(x)(1./x);
+        params.distribution='poisson';
+        tic;[~, S.dev, stat_temp] = glmfit(dm.X, Y, params.distribution,'options',options);toc
         fields_to_copy = fieldnames(stat_temp);
         nf=length(fields_to_copy);
         for f=1:nf
@@ -125,11 +158,11 @@ function stats = fit_glm_to_Cells(Cells,varargin)
             case 'poisson'
                 link = 'log';
         end
-        S.Yhat=glmval(S.beta,gather(dm.X),link,S.beta);
+        S.Yhat=glmval(S.beta,gather(dm.X),link);
         S.Yhat_init_beta = gather([ones(size(dm.X,1),1),dm.X]*S.init_beta);
         fprintf('took %s.\n',timestr(toc));
         % reconstruct fitted kernels by weighted combination of basis functions
-        [S.ws,S.wvars] = buildGLM.combineWeights(buildGLM.addBiasColumn(dm), S.beta , S.covb);
+        [S.ws,S.wvars] = buildGLM.combineWeights(buildGLM.addBiasColumn(dm), S.beta,S.covb );
         % determine if least-squared weights are badly scaled. If so, not much point
         % doing cross-validation.
         if any(sqrt(S.wts)~=0 & sqrt(S.wts)<(max(sqrt(S.wts))*eps('double')^(2/3)))
@@ -181,7 +214,7 @@ function stats = fit_glm_to_Cells(Cells,varargin)
             end
         end
         S.params = params;        
-        S.covariate_stats = get_covariate_stats(S);        
+        %S.covariate_stats = get_covariate_stats(S);        
         fields =fieldnames(S);
         for f=1:length(fields)
             stats(c).(fields{f}) = S.(fields{f});
@@ -204,3 +237,11 @@ function beta = regress(x,y)
     [Q,R] = qr(x,0);
     beta=R\(Q'*y);
 end
+
+        function y = delta(x)
+            if x<0
+                y=50;
+            else
+                y=1;
+            end
+        end

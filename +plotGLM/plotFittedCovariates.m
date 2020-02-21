@@ -28,8 +28,8 @@ function plotFittedCovariates(stats,varargin)
             if contains(label,'click') && params.showOffClicks
                 continue
             end
-            %subplot(n_subplot_columns,n_subplot_columns,group_count);hold on;
-            subplot(2,3,group_count);
+            subplot(n_subplot_columns,n_subplot_columns,group_count);hold on;
+            %subplot(2,3,group_count);
             if length(groups{kCov})==1
                 shadedErrorBar(stats.ws.(label).tr/1000, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data(:)'))-params.ilink(stats.ws.(label).data));
             else
@@ -63,9 +63,9 @@ function plotFittedCovariates(stats,varargin)
         ylabel('Gain');        
         subplot(1,3,2);
         colors=jet(6);
-        for i=3:-1:1 % right
+        for i=1:3 % right
             label = ['left_clicks',num2str(i)];
-            h(i)=shadedErrorBar(stats.ws.(label).tr/1000, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data(:)'))-params.ilink(stats.ws.(label).data),{'color',colors(3-i+1,:)});                    
+            h(i)=shadedErrorBar(stats.ws.(label).tr/1000, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data(:)'))-params.ilink(stats.ws.(label).data),{'color',colors(3-i+1,:)}); hold on;                   
             h(i).patch.FaceAlpha=0;
             title('Left Clicks');
             xlabel('Time (s)');
@@ -73,9 +73,9 @@ function plotFittedCovariates(stats,varargin)
         end
         legend([h.mainLine],{'most adapted third','middle adapted third','least adapted third'});
         subplot(1,3,3);
-        for i=3:-1:1 % right
+        for i=1:3 % right
             label = ['right_clicks',num2str(i)];
-            h(i)=shadedErrorBar(stats.ws.(label).tr/1000, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data(:)'))-params.ilink(stats.ws.(label).data),{'color',colors(i+3,:)});                    
+            h(i)=shadedErrorBar(stats.ws.(label).tr/1000, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data(:)'))-params.ilink(stats.ws.(label).data),{'color',colors(i+3,:)});              hold on;      
             h(i).patch.FaceAlpha=0;            
             title('Right Clicks');
             xlabel('Time (s)');

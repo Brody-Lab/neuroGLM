@@ -397,6 +397,7 @@ if nargout > 2
         se = sqrt(diag(C)); se = se(:);   % insure vector even if empty
         stats.covb = zeros(ncolx,ncolx,dataClass);
         stats.covb(perm,perm) = gather(C);
+        stats.covb = nearestSPD(stats.covb); % fixes floating point errors
         C = C ./ (se * se');
         stats.se = zeros(ncolx,1,dataClass); stats.se(perm) = gather(se);
         stats.coeffcorr = zeros(ncolx,ncolx,dataClass);

@@ -1,16 +1,3 @@
-expt = buildGLM.initExperiment('ms', 1, [], rawData.param);
-expt = buildGLM.registerTiming(expt,'left_click','left click');
-expt = buildGLM.registerTiming(expt,'right_click','right click');
-expt = buildGLM.registerTiming(expt,'stim_on','Stimulus Onset');
-expt = buildGLM.registerSpikeTrain(expt,'spk1','A192, date, cellno');
-expt = buildGLM.registerValue(expt,'choice','Choice Direction');
-
-
-
-
-
-
-
 
 
 %% Load the raw data
@@ -125,7 +112,7 @@ fig = figure(2913); clf;
 nCovar = numel(dspec.covar);
 for kCov = 1:nCovar
     label = dspec.covar(kCov).label;
-    subplot(nCovar, 1, kCov);
+    subplot(4,3, kCov);
     errorbar(ws.(label).tr, ws.(label).data, sqrt(wvar.(label).data));
     title(label);
 end

@@ -9,7 +9,7 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
     p=inputParser;
     p.KeepUnmatched=true;
     p.addParameter('ref_event','cpoke_in',@(x)validateattributes(x,{'char'},{'nonempty'}));
-    p.addParameter('samplingFreq',1e3,@(x)validateattributes(x,{'numeric'},{'scalar'}));
+    p.addParameter('samplingFreq',1e3,@(x)validateattributes(x,{'numeric'},{'scalar'})); %Hz
     p.addParameter('removeViolations',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
     p.addParameter('removeStimTrials',true,@(x)validateattributes(x,{'logical'},{'scalar'})); 
     p.addParameter('nClickBins',1,@(x)validateattributes(x,{'numeric'},{'scalar','positive'}));

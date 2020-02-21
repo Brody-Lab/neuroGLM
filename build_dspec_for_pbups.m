@@ -1,6 +1,15 @@
 function dspec = build_dspec_for_pbups(dspec,covariates,cellno)
     % Build 'designSpec' which specifies how to generate the design matrix
     % Each covariate to include in the model and analysis is specified.
+    % units here are assumed to be in ms
+    
+   
+    bin_size_ms = dspec.expt.binSize;
+    
+    % set some params
+    n_click_bases = 6;
+    click_endpoints_ms = [20 399];
+    click_nl_offset = 10;
     
     %% make condition lambda functions
     left_cond = @(trial) (~trial.pokedR);
@@ -27,10 +36,10 @@ function dspec = build_dspec_for_pbups(dspec,covariates,cellno)
     covariates=unique(regexprep(covariates,'(.*[a-z])[0-9].*','$1'));     % remove trailing numbers because i search through all matching timing events anyway
     %% define click basis
     % good compromise that can explain posterior (fast) and anterior striatum (slow) click responses. also now with the offset it starts at zero.
-    click_basis=basisFactory.makeNonlinearRaisedCos(6,1,[20 399],10);   
+    click_basis=basisFactory.makeNonlinearRaisedCos(n_click_bases,bin_size_ms,click_endpoints_ms,click_nl_offset);   
     
     %% loop over covariates
-    for i=1:length(covariates)
+    for i=1:length(covariates) % N.B. specifying the basis, all times should be in the native units of the experiment (ms) and as long as you supply the binfun, everything is taken care of if you have binning - AGB, 11/2019
         
         switch covariates{i} 
             

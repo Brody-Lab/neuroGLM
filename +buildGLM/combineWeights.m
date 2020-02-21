@@ -79,7 +79,7 @@ function [wout,wvarout] = combineWeights(dm, w , wcov)
         basis = covar.basis;
         if isempty(basis)
             w_sub = w(:,startIdx(kCov) + (1:covar.edim) - 1);
-            wout.(covar.label).tr = ((1:size(w_sub, 2))-1 + covar.offset) * binSize;
+            wout.(covar.label).tr = ((1:size(w_sub, 2))-1 + covar.offset/binSize) * binSize;
             wout.(covar.label).data = mean(w_sub*basis.B',1);
         else
             assert(isstruct(basis), 'Basis structure is not a structure?');
@@ -88,11 +88,11 @@ function [wout,wvarout] = combineWeights(dm, w , wcov)
             for sIdx = 1:sdim
                 w_sub = w(:,startIdx(kCov) + (1:basis.edim)-1 + basis.edim * (sIdx - 1));
                 wout.(covar.label).data = mean(w_sub*basis.B',1);    
-                wout.(covar.label).tr = (basis.tr(:, 1) + covar.offset) * binSize * ones(1, sdim);    
+                wout.(covar.label).tr = (basis.tr(:, 1) + covar.offset/binSize) * binSize * ones(1, sdim);    
                 if covSupplied
                     wvarout.(covar.label).cov = cov(w_sub*basis.B',1);                
                     wvarout.(covar.label).data = diag(wvarout.(covar.label).cov);
-                    wvarout.(covar.label).tr=(basis.tr(:, 1) + covar.offset) * binSize * ones(1, sdim);
+                    wvarout.(covar.label).tr=(basis.tr(:, 1) + covar.offset/binSize) * binSize * ones(1, sdim);
                 end
             end
         end
