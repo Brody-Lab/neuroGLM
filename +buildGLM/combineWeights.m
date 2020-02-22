@@ -1,4 +1,4 @@
-function [wout,wvarout] = combineWeights(dm, w , wcov)
+function [wout,wvarout] = combineWeights(dm, dspec, w , wcov, returncov)
     % Combine the weights per column in the design matrix per covariate 
 
     % wvarout is a structure organized the same as wout but with the estimated
@@ -18,11 +18,13 @@ function [wout,wvarout] = combineWeights(dm, w , wcov)
 
     nsamples=1e4;
     w=w(:)';
-    dspec = dm.dspec;
     binSize = dspec.expt.binSize;
     if nargin>2
         covSupplied=true;
         assert(size(wcov,1)==numel(w) && size(wcov,2)==numel(w)); %
+        if nargin==2
+            returncov=false;
+        end 
     else
         covSupplied=false;
     end
@@ -90,7 +92,9 @@ function [wout,wvarout] = combineWeights(dm, w , wcov)
                 wout.(covar.label).data = mean(w_sub*basis.B',1);    
                 wout.(covar.label).tr = (basis.tr(:, 1) + covar.offset/binSize) * binSize * ones(1, sdim);    
                 if covSupplied
-                    wvarout.(covar.label).cov = cov(w_sub*basis.B',1);                
+                    if returncov
+                        wvarout.(covar.label).cov = cov(w_sub*basis.B',1);                
+                    end
                     wvarout.(covar.label).data = diag(wvarout.(covar.label).cov);
                     wvarout.(covar.label).tr=(basis.tr(:, 1) + covar.offset/binSize) * binSize * ones(1, sdim);
                 end
