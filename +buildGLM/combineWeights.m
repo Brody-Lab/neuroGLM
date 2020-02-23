@@ -50,22 +50,22 @@ function [wout,wvarout] = combineWeights(dm, dspec, w , wcov, returncov)
     end
 
     if isfield(dm, 'constCols') % put back the constant columns
-        w2 = zeros(dm.dspec.edim, 1);
+        w2 = zeros(dspec.edim, 1);
         w2(~dm.constCols) = w; % first term is bias
         w = w2;
         if covSupplied
-            wcov2 = zeros(dm.dspec.edim);
+            wcov2 = zeros(dspec.edim);
             wcov2(~dm.constCols,~dm.constCols)=wcov;
             wcov=wcov2;
         end
     end
 
-    if numel(w) ~= dm.dspec.edim
+    if numel(w) ~= dspec.edim
         error('Expecting w to be %d dimension but it''s [%d]', ...
         dspec.edim, numel(w));
     end
 
-    if numel(wcov) ~= dm.dspec.edim^2
+    if numel(wcov) ~= dspec.edim^2
         error('Expecting w to have %d^2 elements but it''s [%d]', ...
         dspec.edim, sqrt(numel(wcov)));
     end
@@ -92,11 +92,12 @@ function [wout,wvarout] = combineWeights(dm, dspec, w , wcov, returncov)
                 wout.(covar.label).data = mean(w_sub*basis.B',1);    
                 wout.(covar.label).tr = (basis.tr(:, 1) + covar.offset/binSize) * binSize * ones(1, sdim);    
                 if covSupplied
-                    if returncov
-                        wvarout.(covar.label).cov = cov(w_sub*basis.B',1);                
-                    end
+                    wvarout.(covar.label).cov = cov(w_sub*basis.B',1);                
                     wvarout.(covar.label).data = diag(wvarout.(covar.label).cov);
                     wvarout.(covar.label).tr=(basis.tr(:, 1) + covar.offset/binSize) * binSize * ones(1, sdim);
+                    if ~returncov
+                        wvarout.(covar.label) = rmfield(wvarout.(covar.label),'cov'); 
+                    end
                 end
             end
         end

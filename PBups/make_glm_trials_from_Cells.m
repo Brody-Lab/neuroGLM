@@ -15,12 +15,14 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
     p.addParameter('nClickBins',3,@(x)validateattributes(x,{'numeric'},{'scalar','positive'}));
     p.addParameter('separate_stereo_click',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
     p.addParameter('separate_clicks_by','latency',@(x)validatestring(x,{'latency','time'}));    
-    
+    p.parse(varargin{:});
     % time relative to reference event over which you include spikes (make sure the window 
     % over which you include spiking data in your input structure is the same or smaller)    
-    p.addParameter('spikeWindowS',[-1.25 3.25],@(x)validateattributes(x,{'numeric'},{'numel',2})); 
-    
-    
+    if isfield(Cells,'kSpikeWindowS')
+        p.addParameter('spikeWindowS',Cells.kSpikeWindowS.(p.Results.ref_event),@(x)validateattributes(x,{'numeric'},{'numel',2})); 
+    else
+        p.addParameter('spikeWindowS',[-1.245 3.25],@(x)validateattributes(x,{'numeric'},{'numel',2}));         
+    end
     p.parse(varargin{:});
     params = p.Results;
     fields_to_copy = {'rat','sess_date','sess_time','mat_file_name','sessid'};

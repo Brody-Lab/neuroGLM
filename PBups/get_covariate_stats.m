@@ -1,4 +1,42 @@
-function [covariate_stats,stats]=get_covariate_stats(stats,varargin)
+function [covariate_stats,stats] = get_covariate_stats(stats,params,varargin)
+    p = inputParser;
+    p.addParameter('save',false);
+    p.addParameter('save_path','');
+    p.parse(varargin{:});
+    if nargin==0 % if no args, prompt user to locate glmfits file
+        [file,dir] = uigetfile('*glmfits.mat','Choose a *glmfits.mat file');
+        glmfits_file = fullfile(dir,file); 
+        load(glmfits_file);
+        p.Results.save_path = strrep(glmfits_file,'glmfits','glmfits_summary');
+    elseif ischar(stats) % user specified a filename
+        p.Results.save_path = strrep(stats,'glmfits','glmfits_summary');   
+        fprintf('Loading %s.\n',stats);              
+        load(stats);
+    end
+    for i=1:length(stats)
+       covariate_stats(i) = get_covariate_stats_internal(stats(i),params.dm,params.dm.dspec,varargin{:});
+    end
+    for i=1:length(stats)
+        if isfield(stats,'cellno')
+            covariate_stats(i).cellno = stats(i).cellno;
+        end
+        covariate_stats(i).badly_scaled = stats(i).badly_scaled;
+    end
+    if p.Results.save
+       if isempty(p.Results.save_path)
+           warning('No save path specified.');
+           return
+       else
+           save(p.Results.save_path,'covariate_stats');
+           fprintf('Saved covariate_stats to %s.\n',p.Results.save_path);      
+       end
+    end
+end
+
+
+
+
+function [covariate_stats,stats]=get_covariate_stats_internal(stats,dm,dspec,varargin)
     p=inputParser;
     p.addParameter('ilink',@(x)exp(x),@(x)validateattributes(x,{'function_handle'},{''}));
     p.parse(varargin{:});
@@ -13,23 +51,22 @@ function [covariate_stats,stats]=get_covariate_stats(stats,varargin)
     end
     MIfun = @(x,y)(x-y)./(x+y);        
     DC = params.ilink(0);
-    covars = {stats.dspec.covar.label};
-    fprintf('get_covariate_stats: cell %g\n',stats.cellno);
-    if ~isfield(stats.dspec.expt.param,'nClickBins')
-        stats.dspec.expt.param.nClickBins = sum(contains({stats.dspec.covar.label},'left_click'));    
+    covars = {dspec.covar.label};
+    if isfield(stats,'cellno')
+        fprintf('get_covariate_stats: cell %g\n',stats.cellno);
+    end
+    if ~isfield(dspec.expt.param,'nClickBins')
+        dspec.expt.param.nClickBins = sum(contains({dspec.covar.label},'left_click'));    
     end
     %% check that cov is in struct
-    if ~isfield(stats,'dm')
-        stats.dm = buildGLM.compileSparseDesignMatrix(stats.dspec, 1:length(stats.dspec.expt.trial));                
-        stats.dm = buildGLM.removeConstantCols(stats.dm);         
-    end
+    dm.biasCol=1;
     if ~isfield(stats.wvars.(covars{1}),'cov')
         fprintf('get_covariate_stats: adding covariance matrix at solution grouped by covariate ... ');a=tic;     
-        [stats.ws,stats.wvars] = buildGLM.combineWeights(buildGLM.addBiasColumn(stats.dm), stats.beta , stats.covb);
+        [stats.ws,stats.wvars] = buildGLM.combineWeights(dm, dspec,stats.beta , stats.covb,true);
         fprintf('took %s.\n',timestr(toc(a)));
     end     
     if ~isfield(stats,'wsamples')
-        stats.wsamples = buildGLM.sampleWeights(buildGLM.addBiasColumn(stats.dm),stats.beta,stats.covb,'nsamples',1e4);                    
+        stats.wsamples = buildGLM.sampleWeights(dm,stats.beta,stats.covb,'nsamples',1e4);                    
     end
     %% get some basic stats from all covariates
     for i=1:length(covars)
