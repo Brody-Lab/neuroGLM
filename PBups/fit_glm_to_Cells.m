@@ -140,7 +140,7 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     end
     for c=1:sum(responsive_enough)
         stats(c).cellno = params.cellno(responsive_cells(c));
-        stats(c).coviariate_stats.cellno= stats(c).cellno;
+        stats(c).covariate_stats.cellno= stats(c).cellno;
         covariate_stats(c) = stats(c).covariate_stats;
     end    
     %% save
