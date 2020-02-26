@@ -2,7 +2,7 @@ function plot_covariate_stats(stats)
 
 %% get rid of bad fits right off the bat
 for i=1:length(stats)
-    if ~isempty(stats(i).ws) && stats(i).badly_scaled==0
+    if stats(i).badly_scaled==0
         bad_fit(i)=false;
     else
         bad_fit(i)=true;
@@ -14,7 +14,7 @@ stats = stats(~bad_fit);
 pval=0.05;
 
 %% import structure fields to variables in the local workspace
-struct2var([stats.covariate_stats]);
+struct2var(stats);
 struct2var(stereo_click,'all',1,'_stereo');
 
 %% define some new variables - this should all be moved into get_covariate_stats
@@ -117,7 +117,6 @@ end
 
 %% plot choice modulation kernels
 figure;
-
 for k=1:2
 clear pref_choice_kernel nonpref_choice_kernel
 count=0;
@@ -165,9 +164,9 @@ for i=1:3
     figure(a);
     if i==1
         h(i) = histfun(max_deviation_time_stereo,max_deviation_pval_stereo,'edgecolor',[0 0 0]);hold on;
-        %med=median(max_deviation_time_stereo(max_deviation_pval_stereo<pval));
-        %line([1 1].*med,[1 1.1]);
-        %text(med,1,sprintf('%g',med));   
+        med=median(max_deviation_time_stereo(max_deviation_pval_stereo<pval));
+        line([1 1].*med,[1 1.1]);
+        text(med,1,sprintf('%g',med));   
         boots = bootstrp(1000,@nanmedian,max_deviation_time_stereo(max_deviation_pval_stereo<pval));
         
     elseif i==2 % these two could be substituted with the allclick version if necessary 
@@ -178,7 +177,7 @@ for i=1:3
         boots = bootstrp(1000,@nanmean,pref_click_max_deviation_time(pref_click_max_deviation_pval<pval));
         
     else % these two could be substituted with the allclick version if necessary
-        h(i) = histfun(nonpref_click_max_deviation_time,nonpref_click_max_deviation_pval,'edgecolor',[0.8 0.8 0.8]);
+        h(i) = histfun(nonpref_clsave('X:/abondy/Cosyne 2020/site_7_stats.mat','stats_cat','params')ick_max_deviation_time,nonpref_click_max_deviation_pval,'edgecolor',[0.8 0.8 0.8]);
         line([1 1]*median(nonpref_click_max_deviation_time(nonpref_click_max_deviation_pval<pval)),[1 1.1],'color',[0.8 0.8 0.8]);        
         boots = bootstrp(1000,@nanmedian,nonpref_click_max_deviation_time(nonpref_click_max_deviation_pval<pval));
         
@@ -226,7 +225,7 @@ significance_histogram(clicks_allclicks_average_LR_MI,clicks_allclicks_average_L
 
 
 %% get side click deviation stats
-
+clear max_deviation_to_plot
 for i=1:3
     for c=1:length(pref_click_by_average)
         if strcmp(pref_click_by_average(c),'left')
@@ -312,16 +311,16 @@ end
 end
 
 %% plot click side modulation (need to fix to hold them to the same tr) did that, but need a better measure of significance. really need that fucking covariance across covariates.
-left_right_max_deviation_to_plot = left_right_max_deviation( click_modulated(:) ,3);
+left_right_max_deviation_to_plot = left_right_max_deviation( stereo_click_modulated(:) ,3);
 left_right_max_deviation_to_plot(max_deviation_is_negative) = -left_right_max_deviation_to_plot(max_deviation_is_negative);
 %left_right_max_deviation_to_plot = left_right_max_deviation_to_plot(max_deviation_pval(: ,3)<1);
-pvals = left_right_max_deviation_pval( click_modulated(:)); 
+pvals = left_right_max_deviation_pval( stereo_click_modulated(:)); 
 %figure;h=histogram(left_right_max_deviation_to_plot);h.NumBins=20;
 figure;CPhistogram(left_right_max_deviation_to_plot,pvals)
-end
 
 
 %% plot stereo click
+clear stereo_click_kernel
 for i=1:length(stats_cat)
     stereo_click_kernel(i,:) = exp(stats_cat{i}.ws.stereo_click.data);
 end
@@ -339,17 +338,26 @@ tr=stats_cat{1}.ws.stereo_click.tr;
 for i=1:2
 figure;
 if i==2
-    idx = max_deviation_stereo<1 & stereo_modulated;% & clicks_average_LR_MI_pval<pval;% pref_click_max_deviation_pval<pval
+    idx1 = max_deviation_stereo<1 & stereo_modulated;% & clicks_average_LR_MI_pval<pval;% pref_click_max_deviation_pval<pval
 else
-    idx =  (max_deviation_stereo>1 ) & stereo_modulated; %& clicks_average_LR_MI_pval<pval; %& pref_click_max_deviation_pval<pval
+    idx2 =  (max_deviation_stereo>1 ) & stereo_modulated; %& clicks_average_LR_MI_pval<pval; %& pref_click_max_deviation_pval<pval
 end
 
 
-%diffboots = bootstrp(1000,@nanmean,squeeze(pref_click_kernel(idx,g,:)-nonpref_click_kernel(idx,g,:)));
-%h(1)=shadedErrorBar(tr/1000,diffboots,{@mean,@std},'b');
-h = shadedErrorBar(tr/1000,(squeeze(stereo_click_kernel(idx,:))),{@mean,@SE},'b');
+
+end
+h = shadedErrorBar(tr/1000,cat(1,(squeeze(stereo_click_kernel(idx2,:))),(squeeze(stereo_click_kernel(idx2,:)))),{@mean,@SE},'b');
 legend(h.mainLine,'Stereo Click');
 xlabel('Time (s) after click');
 ylabel('Gain');
-end
+%diffboots = bootstrp(1000,@nanmean,squeeze(pref_click_kernel(idx,g,:)-nonpref_click_kernel(idx,g,:)));
+%h(1)=shadedErrorBar(tr/1000,diffboots,{@mean,@std},'b');
+
+
+%% clicks modulation and selectivity statistics
+figure;
+boots = bootstrp(1000,@nanmean,stereo_click_modulated<pval);
+boots2 = bootstrp(1000,@nanmean,clicks_max_deviation_LR_MI_pval<pval);
+figure;errorbar([1 2],mean([boots boots2]),std([boots boots2]));
+set(gca,'xtick',[1 2],'xticklabel',{'fraction click modulated','fraction side selective'});
 
