@@ -9,19 +9,19 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
     p=inputParser;
     p.KeepUnmatched=true;
     p.addParameter('ref_event','cpoke_in',@(x)validateattributes(x,{'char'},{'nonempty'}));
-    p.addParameter('samplingFreq',1e3,@(x)validateattributes(x,{'numeric'},{'scalar'})); %Hz
+    p.addParameter('samplingFreq',1e4,@(x)validateattributes(x,{'numeric'},{'scalar'})); % in Hz. This doesn't determine the resolution of the model, just the input data. Keep this value high especially for the purposes of accurately adapting clicks.
     p.addParameter('removeViolations',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
-    p.addParameter('removeStimTrials',true,@(x)validateattributes(x,{'logical'},{'scalar'})); 
+    p.addParameter('removeStimTrials',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
     p.addParameter('nClickBins',3,@(x)validateattributes(x,{'numeric'},{'scalar','positive'}));
     p.addParameter('separate_stereo_click',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
-    p.addParameter('separate_clicks_by','latency',@(x)validatestring(x,{'latency','time'}));    
+    p.addParameter('separate_clicks_by','latency',@(x)validatestring(x,{'latency','time'}));
     p.parse(varargin{:});
-    % time relative to reference event over which you include spikes (make sure the window 
-    % over which you include spiking data in your input structure is the same or smaller)    
+    % time relative to reference event over which you include spikes (make sure the window
+    % over which you include spiking data in your input structure is the same or smaller)
     if isfield(Cells,'kSpikeWindowS')
-        p.addParameter('spikeWindowS',Cells.kSpikeWindowS.(p.Results.ref_event),@(x)validateattributes(x,{'numeric'},{'numel',2})); 
+        p.addParameter('spikeWindowS',Cells.kSpikeWindowS.(p.Results.ref_event),@(x)validateattributes(x,{'numeric'},{'numel',2}));
     else
-        p.addParameter('spikeWindowS',[-1.245 3.25],@(x)validateattributes(x,{'numeric'},{'numel',2}));         
+        p.addParameter('spikeWindowS',[-1.245 3.25],@(x)validateattributes(x,{'numeric'},{'numel',2}));
     end
     p.parse(varargin{:});
     params = p.Results;
@@ -41,7 +41,7 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
     end
     if params.removeStimTrials
         exclude_trials = exclude_trials | Cells.Trials.laser.isOn;
-    end   
+    end
     % remove side LED and free choice trials by default
     exclude_trials = exclude_trials | abs(Cells.Trials.gamma) > 90;
     %% preallocate structure in memory
@@ -50,7 +50,7 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
     rawData.nTrials = sum(~exclude_trials);
     switch params.separate_clicks_by
         case 'time'
-            right = linspace(0,params.samplingFreq*max([Cells.Trials.stim_dur_s_theoretical]),params.nClickBins+1);      
+            right = linspace(0,params.samplingFreq*max([Cells.Trials.stim_dur_s_theoretical]),params.nClickBins+1);
         case 'latency'
             total_rate=40; % this information isn't in the cells file now so make a good assumption
             binEdges = [0 expinv((1:params.nClickBins-1)/params.nClickBins,params.samplingFreq/total_rate) Inf];
@@ -62,7 +62,7 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
         rawData.trial(t).duration = duration;
         rawData.trial(t).ishit = Cells.Trials.is_hit(original_t);
         for e=1:length(events)
-            rawData.trial(t).(events{e}) = Cells.Trials.stateTimes.(events{e})(original_t) - trial_start_time;                    
+            rawData.trial(t).(events{e}) = Cells.Trials.stateTimes.(events{e})(original_t) - trial_start_time;
             if isnan(rawData.trial(t).(events{e}))
                 rawData.trial(t).(events{e}) = [];
             else
@@ -73,15 +73,15 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
         if isfield(Cells.Trials,'stim_dur_s_theoretical')
             rawData.trial(t).stim_dur = Cells.Trials.stim_dur_s_theoretical(original_t);
         else
-            rawData.trial(t).stim_dur = Cells.Trials.stim_dur_s(original_t);            
+            rawData.trial(t).stim_dur = Cells.Trials.stim_dur_s(original_t);
         end
         rawData.trial(t).pokedR = Cells.Trials.pokedR(original_t);
         for c = 1:length(Cells.spike_time_s.(params.ref_event))
             rawData.trial(t).(['sptrain',num2str(c)]) = round( (Cells.spike_time_s.(params.ref_event){c}{original_t} - params.spikeWindowS(1) ) * params.samplingFreq);
         end
         %% clicks (stereo click gets its own covariate, and depending on the value of nclickbins
-        this_trial_left_clicks = params.samplingFreq*(Cells.Trials.stateTimes.left_clicks(Cells.Trials.stateTimes.left_click_trial==original_t) - trial_start_time); 
-        this_trial_right_clicks = params.samplingFreq*(Cells.Trials.stateTimes.right_clicks(Cells.Trials.stateTimes.right_click_trial==original_t) - trial_start_time);   
+        this_trial_left_clicks = params.samplingFreq*(Cells.Trials.stateTimes.left_clicks(Cells.Trials.stateTimes.left_click_trial==original_t) - trial_start_time);
+        this_trial_right_clicks = params.samplingFreq*(Cells.Trials.stateTimes.right_clicks(Cells.Trials.stateTimes.right_click_trial==original_t) - trial_start_time);
         if strcmp(params.separate_clicks_by,'latency')
             all_clicks = [this_trial_left_clicks this_trial_right_clicks];
             click_idx = [zeros(1,numel(this_trial_left_clicks)),ones(1,numel(this_trial_right_clicks))];
@@ -92,7 +92,7 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
                 itis(2)=Inf;
             else
                 warning('No stereo click at start of this trial!');
-            end                
+            end
             this_trial_left_latencies = itis(click_idx==0);
             this_trial_right_latencies = itis(click_idx==1);
         end
@@ -104,13 +104,13 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
                 if strcmp(params.separate_clicks_by,'latency')
                     this_trial_left_latencies(1)=[];
                     this_trial_right_latencies(1)=[];
-                end                    
+                end
             else
                 warning('No stereo click at start of this trial!');
             end
             if t==1
                 rawData.timings = union(rawData.timings,{'stereo_click'});
-            end            
+            end
         end
         for i=1:params.nClickBins
             if params.nClickBins==1
@@ -123,7 +123,7 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
                     if params.separate_stereo_click
                         these_bin_edges = binEdges + rawData.trial(t).stereo_click;
                     else
-                        these_bin_edges = binEdges + min([this_trial_left_clicks(:);this_trial_right_clicks(:)]);                    
+                        these_bin_edges = binEdges + min([this_trial_left_clicks(:);this_trial_right_clicks(:)]);
                     end
                 end
             end
@@ -132,13 +132,11 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
             end
             switch params.separate_clicks_by
                 case 'time'
-                    rawData.trial(t).(['left_clicks',idx_str])  = this_trial_left_clicks(this_trial_left_clicks>=these_bin_edges(i) & this_trial_left_clicks<these_bin_edges(i+1)) ;       
-                    rawData.trial(t).(['right_clicks',idx_str])  = this_trial_right_clicks(this_trial_right_clicks>=these_bin_edges(i) & this_trial_right_clicks<these_bin_edges(i+1)) ; 
-                    rawData.trial(t).(['all_clicks',idx_str])  = union(rawData.trial(t).(['left_clicks',idx_str]),rawData.trial(t).(['right_clicks',idx_str])) ;        
+                    rawData.trial(t).(['left_clicks',idx_str])  = this_trial_left_clicks(this_trial_left_clicks>=these_bin_edges(i) & this_trial_left_clicks<these_bin_edges(i+1)) ;
+                    rawData.trial(t).(['right_clicks',idx_str])  = this_trial_right_clicks(this_trial_right_clicks>=these_bin_edges(i) & this_trial_right_clicks<these_bin_edges(i+1)) ;
                 case 'latency'
                     rawData.trial(t).(['left_clicks',idx_str])  = this_trial_left_clicks(this_trial_left_latencies>=binEdges(i) & this_trial_left_latencies<binEdges(i+1)) ;       
-                    rawData.trial(t).(['right_clicks',idx_str])  = this_trial_right_clicks(this_trial_right_latencies>=binEdges(i) & this_trial_right_latencies<binEdges(i+1)) ; 
-                    rawData.trial(t).(['all_clicks',idx_str])  = union(rawData.trial(t).(['left_clicks',idx_str]),rawData.trial(t).(['right_clicks',idx_str])) ;                       
+                    rawData.trial(t).(['right_clicks',idx_str])  = this_trial_right_clicks(this_trial_right_latencies>=binEdges(i) & this_trial_right_latencies<binEdges(i+1)) ;
             end
         end
     end
