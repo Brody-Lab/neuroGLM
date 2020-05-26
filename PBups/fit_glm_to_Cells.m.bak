@@ -11,35 +11,15 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     p.addParameter('save',false,@(x)validateattributes(x,{'logical'},{'scalar'}));
     p.addParameter('use_parallel',false,@(x)validateattributes(x,{'logical'},{'scalar'}));    % parfor operates over cells unless cross-validation is used (i.e. kfold>1) in which case it operates over cross-validation folds
     p.addParameter('maxIter',25,@(x)validateattributes(x,{'numeric'},{'positive','scalar'}));
-    p.addParameter('bin_size_s',0.001,@(x)validateattributes(x,{'numeric'},{'positive','scalar'}));  % resolution of the model. predictions have this bin size.  
-    p.addParameter('minResponsiveFrac',0.5,@(x)validateattributes(x,{'numeric'},{'scalar','positive','<',1}));
-    p.addParameter('minSpkParamRatio',10,@(x)validateattributes(x,{'numeric'},{'scalar','positive'}));
-    p.addParameter('distribution','poisson',@(x)validatestring(x,{'poisson','normal'}));   
-    p.addParameter('link','canonical',@(x)validatestring(x,{'log','identity','softplus'}));
+    p.addParameter('minResponsiveFrac',0.5,@(x)validateattributes(x,{'numeric'},{'scalar','positive','<',1})); % fraction of trials on which the cell fired at least one spike
+    p.addParameter('minSpkParamRatio',10,@(x)validateattributes(x,{'numeric'},{'scalar','positive'})); % minimum number of spikes per model parameter (i.e. design matrix column)
+    p.addParameter('separate_clicks_by_side',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
+    p.addParameter('distribution','poisson',@(x)validatestring(x,{'poisson','normal'}));
     p.addParameter('save_path','');
     p.addParameter('useGPU',false,@(x)validateattributes(x,{'logical'},{'scalar'}));
-    p.addParameter('phi',0.2,@(x)validateattributes(x,{'numeric'},{'scalar','nonnegative'})); % adaptation param
-    p.addParameter('tau_phi',0.05,@(x)validateattributes(x,{'numeric'},{'scalar','nonnegative'})); % adaptation param
-    p.addParameter('within_stream',false,@(x)validateattributes(x,{'logical'},{'scalar'})); % within_stream adaptation flag    
-    p.addParameter('fit_adaptation',true,@(x)validateattributes(x,{'logical'},{'scalar'})); % whether or not to fit phi and tau_phi for each neuron using gradient descent
+    p.addParameter('bin_size_ms',1);
     p.parse(varargin{:});
     params=p.Results;
-    switch params.link
-        case 'canonical'
-            if strcmp(params.distribution,'poisson')
-                params.link='log';
-            else
-                params.link='identity';                
-            end
-        case 'softplus'
-            params.link.Link = @(mu)log(1+exp(mu));
-            params.link.Derivative = @(mu)1./(1+exp(-mu));
-            params.link.Inverse = @(eta)log(exp(eta)-1);
-    end        
-    if ischar(params.link)
-        [link.Link,link.Derivative,link.Inverse] = stattestlink(params.link,'double');        
-        params.link=link;
-    end
     %% load Cells file if a filename is passed
     if ischar(Cells) && exist(Cells,'file')
         mat_file_name = Cells;
@@ -50,8 +30,8 @@ function stats = fit_glm_to_Cells(Cells,varargin)
         Cells.mat_file_name = mat_file_name;
     end
     %% make rawData and expt structures (i.e. put event times and spike times into neuroGLM format)
-    rawData = make_glm_trials_from_Cells(Cells,varargin{:}); 
-    expt=build_expt_for_pbups(rawData,'bin_size_s',params.bin_size_s); 
+    rawData = make_glm_trials_from_Cells(Cells,varargin{:});   
+    expt=build_expt_for_pbups(rawData,params.bin_size_ms); 
     nTrials = rawData.nTrials;
     if isempty(params.cellno)
         params.cellno=1:rawData.param.ncells;
@@ -87,10 +67,14 @@ function stats = fit_glm_to_Cells(Cells,varargin)
         covariates = union(covariates,{'cpoke_out_left','cpoke_out_right'});
         covariates = setdiff(covariates,{'cpoke_out'});
     end    
+    if params.separate_clicks_by_side
+        covariates(strmatch('all_click',covariates))='';
+    else
+        covariates(strmatch('left_click',covariates))='';
+        covariates(strmatch('right_click',covariates))='';        
+    end
     dspec_base = buildGLM.initDesignSpec(expt);    
     dspec_base = build_dspec_for_pbups(dspec_base,covariates,[]);
-    dm = buildGLM.compileSparseDesignMatrix(dspec_base, 1:nTrials, params);  
-    X_base = dm.X;
     ncells=rawData.param.ncells;
     %% loop over cells
     % do a non-parallel loop to compute things needed for each cell without
@@ -121,8 +105,8 @@ function stats = fit_glm_to_Cells(Cells,varargin)
             end
         end        
         dspec = build_dspec_for_pbups(dspec_base,'spike_history',params.cellno(c)); 
-        %% build design matrices        
-        dm = buildGLM.compileSparseDesignMatrix(dspec, 1:nTrials, params , X_base, numel(dspec.covar));   % only remake the columns associated with the spike history term since the rest is common across cells
+        %% build design matrices
+        dm = buildGLM.compileSparseDesignMatrix(dspec, 1:nTrials);  
         dm = buildGLM.removeConstantCols(dm);       
         Y{c} = full(buildGLM.getBinnedSpikeTrain(expt, ['sptrain',num2str(params.cellno(c))], dm.trialIndices)); 
         if params.useGPU
@@ -190,23 +174,26 @@ function stats = mainLoop(X,Y,params)
     % for all cells) and the parent function params
     % if z-scoring was performed on the design matrix, you'd need to have a
     % separate dm structure for each cell storing this
-    tic;fprintf('   Fitting UN cross-validated model ... ');drawnow; 
-    nTrials = numel(params.dm.trialIndices);
-    X=zscore(X);
-    init_beta = gather(regress(params.bias_column_fun(X),Y));
-    stats = fit(X, Y, params, init_beta, 1:nTrials);
-    fields = fieldnames(stats);
-    rm_fields = {'residp','residd','resida','wts'};
-    nf=length(fields);
+    tic;fprintf('   Fitting UN cross-validated model ... ');drawnow;   
+    options = statset('MaxIter',params.maxIter);        
+    stats.init_beta = gather(regress(params.bias_column_fun(X),Y));
+    [~, stats.dev, stat_temp] = glmfit(X, Y, params.distribution,'options',options);
+    fields_to_copy = fieldnames(stat_temp);
+    fields_to_copy = fields_to_copy(~ismember(fields_to_copy,{'residp','residd','resida','wts'}));
+    nf=length(fields_to_copy);
     for f=1:nf
-        if ismember(fields{f},rm_fields)
-            stats=rmfield(stats,fields{f});
-        else
-            stats.(fields{f}) = gather(stats.(fields{f}));
-        end
+        stats.(fields_to_copy{f}) = gather(stat_temp.(fields_to_copy{f}));
     end     
-    stats.init_beta=init_beta;
+    stats.dev=gather(stats.dev);
     % compute model predicted firing rates
+    switch params.distribution
+        case 'normal'
+            link = 'identity';
+        case 'poisson'
+            link = 'log';
+    end
+    stats.Yhat=glmval(stats.beta,gather(X),link);
+    stats.Yhat_init_beta = gather([ones(size(X,1),1),X]*stats.init_beta);
     fprintf('took %s.\n',timestr(toc));
     % reconstruct fitted kernels by weighted combination of basis functions
     params.dm.biasCol=1;
@@ -235,12 +222,12 @@ function stats = mainLoop(X,Y,params)
             [cv_stats,dev] = zeros(1,params.kfold);
             if params.use_parallel
                 parfor i=1:params.kfold 
-                    [~, dev(i), cv_stats(i)] = fit(X(train_idx{i},:),Y(train_idx{i}), params, stats.cvp.training(i));  
+                    [~, dev(i), cv_stats(i)] = glmfit(X(train_idx{i},:),Y(train_idx{i}), 'poisson','options',options);  
                     init_beta{i} = gather(regress(bias_column_fun(X(train_idx{i},:)),Y(train_idx{i})));                                                     
                 end    
             else
                 for i=params.kfold:-1:1
-                    [~, dev(i), cv_stats(i)] = fit(X(train_idx{i},:),Y(train_idx{i}), params, stats.cvp.training(i));  
+                    [~, dev(i), cv_stats(i)] = glmfit(X(train_idx{i},:),Y(train_idx{i}), 'poisson','options',options);  
                     init_beta{i} = gather(regress(bias_column_fun(X(train_idx{i},:)),Y(train_idx{i})));                                                     
                 end                  
             end
@@ -270,51 +257,4 @@ end
 function beta = regress(x,y)
     [Q,R] = qr(x,0);
     beta=R\(Q'*y);
-end
-
-
-function stats = fit(X,Y, params, init,trials)
-    %[X,mu,sigma]=zscore(X);
-    %X=bsxfun(@times,X,1./std(X));
-    if params.fit_adaptation
-        stats=struct();
-        n_linear_params=size(X,2);
-        adaptation_params = [params.phi; params.tau_phi];
-        if isempty(init)
-            init=[zeros(n_linear_params+1,1);adaptation_params]; 
-        else
-            init = [init(:);adaptation_params];
-        end
-        init(1) = params.link.Link(mean(Y));      
-        lb=ones(size(init))*-Inf;
-        ub=ones(size(init))*Inf;
-        lb(end-1:end)=[0;0];
-        options=optimoptions('fmincon','UseParallel',true,'Display','iter-detailed');        
-        covar_idx=find(ismember({params.dm.dspec.covar.label},{'left_clicks','right_clicks'}));
-        optim_fun = @(x)NLL_fun(X,Y,params.dm.dspec,x(1:end-2),x(end-1),x(end),params.within_stream,params.link.Inverse,params.distribution,covar_idx,trials);
-        [stats.beta,stats.NLL,stats.exitflag,stats.output,stats.lambda,stats.grad] = fmincon(optim_fun,init,[],[],[],[],lb,ub,[],options);
-        [~,stats.Yhat] = optim_fun(stats.beta);
-        %stats.beta(2:end-2)=stats.beta(2:end-2)./sigma(:);
-        stats.beta(end-1:end) = exp(stats.beta(end-1:end));
-    else
-        options = statset('MaxIter',params.maxIter);                
-        [~,dev,stats] = glmfit(X,Y,params.distribution,'options',options);
-        stats.dev=dev;
-        stats.Yhat=glmval(stats.beta,gather(X),params.link);        
-    end
-end
-
-function [NLL,pred] = NLL_fun(X,Y,dspec,beta,phi,tau_phi,within_stream,ilink,distribution,covar_idx,trials)
-    params.phi=phi;
-    params.tau_phi=tau_phi;
-    params.within_stream=within_stream;
-    dm = buildGLM.compileSparseDesignMatrix(dspec, trials, params , X, covar_idx);   % only remake the columns associated with the spike history term since the rest is common across cells        
-    dm.X = zscore(dm.X);
-    pred = ilink(beta(1)+dm.X*beta(2:end));
-    switch distribution
-        case 'poisson'
-            NLL = -sum(log(poisspdf(Y,pred)));
-        case 'normal'
-            NLL = -sum(log(normpdf(Y,pred,1)));
-    end       
 end

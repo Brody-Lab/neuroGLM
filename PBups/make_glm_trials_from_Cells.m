@@ -12,10 +12,11 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
     p.addParameter('samplingFreq',1e4,@(x)validateattributes(x,{'numeric'},{'scalar'})); % in Hz. This doesn't determine the resolution of the model, just the input data. Keep this value high especially for the purposes of accurately adapting clicks.
     p.addParameter('removeViolations',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
     p.addParameter('removeStimTrials',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
-    p.addParameter('nClickBins',3,@(x)validateattributes(x,{'numeric'},{'scalar','positive'}));
+    p.addParameter('nClickBins',1,@(x)validateattributes(x,{'numeric'},{'scalar','positive'}));
     p.addParameter('separate_stereo_click',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
     p.addParameter('separate_clicks_by','latency',@(x)validatestring(x,{'latency','time'}));
-    p.parse(varargin{:});
+    p.addParameter('cellno',[]);
+    p.parse(varargin{:});    
     % time relative to reference event over which you include spikes (make sure the window
     % over which you include spiking data in your input structure is the same or smaller)
     if isfield(Cells,'kSpikeWindowS')
@@ -25,6 +26,9 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
     end
     p.parse(varargin{:});
     params = p.Results;
+    if isempty(params.cellno)
+        params.cellno=1:length(Cells.spike_time_s.(params.ref_event));
+    end
     fields_to_copy = {'rat','sess_date','sess_time','mat_file_name','sessid'};
     for f=1:length(fields_to_copy)
         if isfield(Cells,fields_to_copy{f})
@@ -76,7 +80,7 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
             rawData.trial(t).stim_dur = Cells.Trials.stim_dur_s(original_t);
         end
         rawData.trial(t).pokedR = Cells.Trials.pokedR(original_t);
-        for c = 1:length(Cells.spike_time_s.(params.ref_event))
+        for c = params.cellno(:)'
             rawData.trial(t).(['sptrain',num2str(c)]) = round( (Cells.spike_time_s.(params.ref_event){c}{original_t} - params.spikeWindowS(1) ) * params.samplingFreq);
         end
         %% clicks (stereo click gets its own covariate, and depending on the value of nclickbins
@@ -135,12 +139,12 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
                     rawData.trial(t).(['left_clicks',idx_str])  = this_trial_left_clicks(this_trial_left_clicks>=these_bin_edges(i) & this_trial_left_clicks<these_bin_edges(i+1)) ;
                     rawData.trial(t).(['right_clicks',idx_str])  = this_trial_right_clicks(this_trial_right_clicks>=these_bin_edges(i) & this_trial_right_clicks<these_bin_edges(i+1)) ;
                 case 'latency'
-                    rawData.trial(t).(['left_clicks',idx_str])  = this_trial_left_clicks(this_trial_left_latencies>=binEdges(i) & this_trial_left_latencies<binEdges(i+1)) ;       
+                    rawData.trial(t).(['left_clicks',idx_str])  = this_trial_left_clicks(this_trial_left_latencies>=binEdges(i) & this_trial_left_latencies<binEdges(i+1)) ;
                     rawData.trial(t).(['right_clicks',idx_str])  = this_trial_right_clicks(this_trial_right_latencies>=binEdges(i) & this_trial_right_latencies<binEdges(i+1)) ;
             end
         end
     end
     rawData.param.samplingFreq = params.samplingFreq; % Hz
     rawData.param.aligned_to = params.ref_event;
-    rawData.param.ncells = length(Cells.spike_time_s.(params.ref_event));
+    rawData.param.ncells = numel(params.cellno);
 end

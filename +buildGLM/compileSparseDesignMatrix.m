@@ -31,15 +31,11 @@ function dm = compileSparseDesignMatrix(dspec, trialIndices, adaptation_params, 
             stereo_click = expt.trial(k).stereo_click ./ expt.param.samplingFreq;
             [left_adapted,right_adapted] = adapt_clicks(left_clicks,right_clicks,stereo_click,...
                 adaptation_params.phi,adaptation_params.tau_phi,adaptation_params.within_stream);
-            if ~isempty(left_clicks)
-                left_clicks = full(basisFactory.deltaStim(expt.binfun(left_clicks*expt.param.samplingFreq),trialT(k),left_adapted));
-            end
-            if ~isempty(right_clicks)
-                right_clicks = full(basisFactory.deltaStim(expt.binfun(right_clicks*expt.param.samplingFreq),trialT(k),right_adapted));
-            end
+            left_clicks = full(basisFactory.deltaStim(expt.binfun(left_clicks*expt.param.samplingFreq),trialT(k),left_adapted));
+            right_clicks = full(basisFactory.deltaStim(expt.binfun(right_clicks*expt.param.samplingFreq),trialT(k),right_adapted));
         else
-             right_clicks = full(dspec.covar(right_click_idx).stim(expt.trial(k), trialT));
-             left_clicks = full(dspec.covar(left_click_idx).stim(expt.trial(k), trialT));
+             right_clicks = full(dspec.covar(right_click_idx).stim(expt.trial(k)));
+             left_clicks = full(dspec.covar(left_click_idx).stim(expt.trial(k)));
         end
         for kCov = covar_idx % for each covariate
             covar = dspec.covar(kCov);
@@ -53,7 +49,7 @@ function dm = compileSparseDesignMatrix(dspec, trialIndices, adaptation_params, 
                 case 'right_clicks'
                     stim = right_clicks;
                 otherwise
-                    stim = covar.stim(expt.trial(k), trialT); % either dense or sparse
+                    stim = covar.stim(expt.trial(k)); % either dense or sparse
                     stim = full(stim);
             end
             if isfield(covar, 'basis') && ~isempty(covar.basis)
