@@ -17,12 +17,11 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     p.addParameter('distribution','poisson',@(x)validateattributes(x,{'char'},{}));   
     p.addParameter('link','canonical',@(x)validatestring(x,{'log','identity','softplus'}));
     p.addParameter('save_path','');
-    p.addParameter('useGPU',false,@(x)validateattributes(x,{'logical'},{'scalar'}));
-    p.addParameter('phi',0.2,@(x)validateattributes(x,{'numeric'},{'scalar','nonnegative'})); % adaptation param
-    p.addParameter('tau_phi',0.05,@(x)validateattributes(x,{'numeric'},{'scalar','nonnegative'})); % adaptation param
+    p.addParameter('useGPU',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
+    p.addParameter('phi',0.1,@(x)validateattributes(x,{'numeric'},{'scalar','nonnegative'})); % adaptation param
+    p.addParameter('tau_phi',0.1,@(x)validateattributes(x,{'numeric'},{'scalar','nonnegative'})); % adaptation param
     p.addParameter('within_stream',false,@(x)validateattributes(x,{'logical'},{'scalar'})); % within_stream adaptation flag    
     p.addParameter('fit_adaptation',true,@(x)validateattributes(x,{'logical'},{'scalar'})); % whether or not to fit phi and tau_phi for each neuron using gradient descent
-    p.addParameter('coord_ascent',true,@(x)validateattributes(x,{'logical'},{'scalar'}));    
     p.parse(varargin{:});
     params=p.Results;
     validatestring(params.distribution,{'poisson','normal'},mfilename,'distribution');
@@ -97,12 +96,7 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     %% loop over cells
     % do a non-parallel loop to compute things needed for each cell without
     % passing large necessary structures to workers
-    responsive_enough=true(1,ncells);
-    if params.useGPU
-        params.bias_column_fun = @(x)[gpuArray.ones(size(x,1),1),x];
-    else
-        params.bias_column_fun = @(x)[ones(size(x,1),1),x];
-    end     
+    responsive_enough=true(1,ncells);  
     n_params=sum([dspec_base.covar.edim])+1+6; % 6 is for spike history filter but this may be an overestimate. roughly good enough for these purposes.
     %% first (non-parallel) loop across cells
     % non-parallel loop across cells just to compute the design matrices
@@ -127,12 +121,7 @@ function stats = fit_glm_to_Cells(Cells,varargin)
         dm = buildGLM.compileSparseDesignMatrix(dspec, 1:nTrials, params , X_base, numel(dspec.covar));   % only remake the columns associated with the spike history term since the rest is common across cells
         dm = buildGLM.removeConstantCols(dm);       
         Y{c} = full(buildGLM.getBinnedSpikeTrain(expt, ['sptrain',num2str(params.cellno(c))], dm.trialIndices)); 
-        if params.useGPU
-            X{c} = gpuArray(dm.X);
-            Y{c} = gpuArray(Y{c});
-        else
-            X{c} = dm.X;
-        end
+        X{c} = dm.X;
     end
     fprintf(' took %s.\n%g of %g cells are sufficiently responsive. Fitting now:\n',timestr(toc),sum(responsive_enough),ncells);
     responsive_cells = find(responsive_enough);
@@ -194,10 +183,9 @@ function stats = mainLoop(X,Y,params)
     % separate dm structure for each cell storing this
     tic;fprintf('   Fitting UN cross-validated model ... ');drawnow; 
     nTrials = numel(params.dm.trialIndices);
-    init_beta = gather(regress(params.bias_column_fun(X),Y));
-    stats = fit(X, Y, params, init_beta, 1:nTrials);
+    stats = fit(X, Y, params, 1:nTrials);
     fields = fieldnames(stats);
-    rm_fields = {'residp','residd','resida','wts'};
+    rm_fields = {'residp','residd','resida'};
     nf=length(fields);
     for f=1:nf
         if ismember(fields{f},rm_fields)
@@ -206,7 +194,6 @@ function stats = mainLoop(X,Y,params)
             stats.(fields{f}) = gather(stats.(fields{f}));
         end
     end     
-    stats.init_beta=init_beta;
     % compute model predicted firing rates
     fprintf('took %s.\n',timestr(toc));
     % reconstruct fitted kernels by weighted combination of basis functions
@@ -214,11 +201,12 @@ function stats = mainLoop(X,Y,params)
     [stats.ws,stats.wvars] = buildGLM.combineWeights(params.dm, params.dm.dspec, stats.beta,stats.covb,true );
     % determine if least-squared weights are badly scaled. If so, not much point
     % doing cross-validation.
-    if any(sqrt(stat_temp.wts)~=0 & sqrt(stat_temp.wts)<(max(sqrt(stat_temp.wts))*eps('double')^(2/3)))
+    if any(sqrt(stats.wts)~=0 & sqrt(stats.wts)<(max(sqrt(stats.wts))*eps('double')^(2/3)))
         stats.badly_scaled=true;
     else
         stats.badly_scaled=false;
     end
+    stats=rmfield(stats,'wts');
     % Fit cross-validated model (if requested and if uncross-validated fit was not badly scaled)
     if ~isempty(params.kfold) && params.kfold>1
         if stats.badly_scaled
@@ -237,12 +225,10 @@ function stats = mainLoop(X,Y,params)
             if params.use_parallel
                 parfor i=1:params.kfold 
                     [~, dev(i), cv_stats(i)] = fit(X(train_idx{i},:),Y(train_idx{i}), params, stats.cvp.training(i));  
-                    init_beta{i} = gather(regress(bias_column_fun(X(train_idx{i},:)),Y(train_idx{i})));                                                     
                 end    
             else
                 for i=params.kfold:-1:1
                     [~, dev(i), cv_stats(i)] = fit(X(train_idx{i},:),Y(train_idx{i}), params, stats.cvp.training(i));  
-                    init_beta{i} = gather(regress(bias_column_fun(X(train_idx{i},:)),Y(train_idx{i})));                                                     
                 end                  
             end
             cv_stats = rmfield(cv_stats,{'resid','residp','residd','resida'}); % these take up A TON of space, and could always be generated if needed
@@ -268,92 +254,79 @@ function stats = mainLoop(X,Y,params)
     end
 end
 
-function beta = regress(x,y)
-    [Q,R] = qr(x,0);
-    beta=R\(Q'*y);
-end
-
-
-function stats = fit(X,Y, params, init,trials)
-    %[X,mu,sigma]=zscore(X);
-    %X=bsxfun(@times,X,1./std(X));
+function stats = fit(X,Y,params,trials)
     if params.fit_adaptation
-        stats=struct();
-        n_linear_params=size(X,2);
-        adaptation_params = [params.phi; params.tau_phi];
-        if isempty(init)
-            init=[zeros(n_linear_params+1,1);adaptation_params]; 
-        else
-            init = [init(:);adaptation_params];
+        global time_at_start    
+        if params.useGPU
+            Y=gpuArray(Y);
         end        
-        init(1) = params.link.Link(mean(Y));      
-        lb=ones(size(init))*-Inf;
-        ub=ones(size(init))*Inf;
-        lb(end-1:end)=[-40;-40];
-        ub(end-1:end)=[10;10];
-        covar_idx=find(ismember({params.dm.dspec.covar.label},{'left_clicks','right_clicks'}));        
-        if params.coord_ascent
-            while 1==1
-                %% find best linear terms given adaptation params
-                options = statset('MaxIter',params.maxIter);          
-                dm = buildGLM.compileSparseDesignMatrix(params.dm.dspec, trials, params , X, covar_idx);   % only remake the columns associated with the spike history term since the rest is common across cells                        
-                idx=buildGLM.getDesignMatrixColIndices(params.dm.dspec,{'left_clicks','right_clicks'});
-                idx=cat(1,idx{:});
-                dm.X(:,idx) = bsxfun(@times,dm.X(:,idx),1./mean(dm.X(:,idx)));                
-                %dm.X = bsxfun(@times,dm.X,1./mean(dm.X));                
-                %dm.X = zscore(dm.X);
-                [~,dev,stats] = glmfit(gpuArray(dm.X),gpuArray(Y),params.distribution,'options',options,'estdisp','on');                
-                stats.Yhat = glmval(stats.beta,dm.X,params.link);
-                switch params.distribution
-                    case 'poisson'
-                        stats.NLL = -sum(log(poisspdf(Y,stats.Yhat)));
-                    case 'normal'
-                        stats.NLL = -sum(log(normpdf(Y,stats.Yhat,1)));
-                end   
-                stats.NLL
-                stats.dev=dev;
-                %% find best adaptatoin terms given linear terms
-                options=optimoptions('fminunc','UseParallel',true,'Display','iter-detailed','StepTolerance',1e-10,'OptimalityTolerance',1e-10);        
-                optim_fun = @(x)NLL_fun(X,Y,params.dm.dspec,stats.beta,x(1),x(2),params.within_stream,params.link.Inverse,params.distribution,covar_idx,trials);
-                [stats.beta,stats.NLL,stats.exitflag,stats.output,stats.grad,stats.hessian] = fminunc(optim_fun,log([params.phi;params.tau_phi]),options);                
-                params.phi=exp(stats.beta(1));
-                params.tau_phi = exp(stats.beta(2));
-               
-            end
-            
-        else
-
-
-            options=optimoptions('fmincon','UseParallel',true,'Display','iter-detailed');        
-            optim_fun = @(x)NLL_fun(X,Y,params.dm.dspec,x(1:end-2),x(end-1),x(end),params.within_stream,params.link.Inverse,params.distribution,covar_idx,trials);
-            [stats.beta,stats.NLL,stats.exitflag,stats.output,stats.lambda,stats.grad] = fmincon(optim_fun,init,[],[],[],[],lb,ub,[],options);
-            [~,stats.Yhat] = optim_fun(stats.beta);
-            %stats.beta(2:end-2)=stats.beta(2:end-2)./sigma(:);
-            stats.beta(end-1:end) = exp(stats.beta(end-1:end));
-        end
-    else
-        options = statset('MaxIter',params.maxIter);                
-        [~,dev,stats] = glmfit(X,Y,params.distribution,'options',options);
-        stats.dev=dev;
-        stats.Yhat=glmval(stats.beta,gather(X),params.link);        
+        covar_idx=find(ismember({params.dm.dspec.covar.label},{'left_clicks','right_clicks'}));  
+        X_update_fun = @(phi,tau_phi)buildGLM.compileSparseDesignMatrix(params.dm.dspec, trials,...
+            struct('phi',phi,'tau_phi',tau_phi,'within_stream',params.within_stream) ,X, covar_idx);   % only remake the columns associated with the spike history term since the rest is common across cells             
+        time_at_start=tic;
+        %options=optimoptions('fminunc','UseParallel',false,'OptimalityTolerance',eps,'OutputFcn',@optim_status_fun);  % stop if you are taking tiny steps but not if the change in LL is small -- sometimes the gradient is really small far from the optimum and you should keep going until you get near the basin              
+        %optim_fun = @(x)NLL_fun(X_update_fun,Y,exp(x(1)),exp(x(2)),rmfield(params,'dm'));                
+        %[adaptation_stats.beta,adaptation_stats.NLL,adaptation_stats.exitflag,adaptation_stats.output,adaptation_stats.grad,adaptation_stats.hessian] = fminunc(optim_fun,log([params.phi;params.tau_phi]),options);                
+        options=optimoptions('fmincon','UseParallel',false,'OutputFcn',@optim_status_fun,'Algorithm','active-set');  % stop if you are taking tiny steps but not if the change in LL is small -- sometimes the gradient is really small far from the optimum and you should keep going until you get near the basin              
+        optim_fun = @(x)NLL_fun(X_update_fun,Y,x(1),x(2),rmfield(params,'dm'));                        
+        [adaptation_stats.beta,adaptation_stats.NLL,adaptation_stats.exitflag,adaptation_stats.output,adaptation_stats.lambda,...
+            adaptation_stats.grad,adaptation_stats.hessian] = fmincon(optim_fun,([params.phi;params.tau_phi]),[],[],[],[],[0 0],[Inf Inf],[],options);                        
+        [params.phi,adaptation_stats.phi]=deal(adaptation_stats.beta(1));
+        [params.tau_phi,adaptation_stats.tau_phi] = deal(adaptation_stats.beta(2));            
+        adaptation_stats.se=sqrt(diag(inv(adaptation_stats.hessian)));
+        adaptation_stats.phi_range = (adaptation_stats.beta(1) +[-1 1]*adaptation_stats.se(1));
+        adaptation_stats.tau_phi_range = (adaptation_stats.beta(2) +[-1 1]*adaptation_stats.se(2));     
+        dm = X_update_fun(params.phi,params.tau_phi);   % only remake the columns associated with the spike history term since the rest is common across cells             
+        X=dm.X;
     end
+    options = statset('MaxIter',params.maxIter);   
+    if params.useGPU
+        X=gpuArray(X);
+    end
+    [~,dev,stats] = glmfit(X,Y,params.distribution,'options',options);            
+    stats.dev=dev;
+    stats.Yhat=glmval(stats.beta,gather(X),params.link);    
+    stats.adaptation_stats=adaptation_stats;
 end
 
-function [NLL,pred] = NLL_fun(X,Y,dspec,beta,phi,tau_phi,within_stream,ilink,distribution,covar_idx,trials)
-    params.phi=exp(phi);
-    params.tau_phi=exp(tau_phi);
-    params.within_stream=within_stream;
-    dm = buildGLM.compileSparseDesignMatrix(dspec, trials, params , X, covar_idx);   % only remake the columns associated with the spike history term since the rest is common across cells  
-    idx=buildGLM.getDesignMatrixColIndices(dspec,{'left_clicks','right_clicks'});
-    idx=cat(1,idx{:});
-    dm.X(:,idx) = bsxfun(@times,dm.X(:,idx),1./mean(dm.X(:,idx)));
-    %dm.X = bsxfun(@times,dm.X,1./mean(dm.X));
-    %dm.X = zscore(dm.X);
-    pred = ilink(beta(1)+dm.X*beta(2:end));
-    switch distribution
+function NLL = NLL_fun(X_update_fun,Y,phi,tau_phi,params)
+    dm = X_update_fun(phi,tau_phi);   % only remake the columns associated with the click terms since the rest is independent of the adaptation parameters
+    options = statset('MaxIter',params.maxIter);                  
+    if params.useGPU
+        dm.X=gpuArray(dm.X);
+    end        
+    beta = glmfit(dm.X,Y,params.distribution,'options',options);       
+    pred = params.link.Inverse(beta(1)+dm.X*beta(2:end));    
+    switch params.distribution
         case 'poisson'
             NLL = -sum(log(poisspdf(Y,pred)));
         case 'normal'
             NLL = -sum(log(normpdf(Y,pred,1)));
-    end       
+    end 
+    NLL=gather(NLL);
+end
+
+function stop = optim_status_fun(x,optimValues,state)
+    stop=false;
+    global time_at_start
+    switch state
+        case 'iter'
+            if isempty(optimValues.stepsize)
+                fprintf('   %2d            %3d        %10.10e                         %3.3e           %3.3e      %4.1f         %6.1f\n',...
+                  optimValues.iteration,optimValues.funccount,optimValues.fval,optimValues.firstorderopt,...
+                  (x(1)),(x(2)),toc(time_at_start));
+            else
+                fprintf('   %2d            %3d        %10.10e     %3.3e           %3.3e           %3.3e      %4.1f         %6.1f\n',...
+                  optimValues.iteration,optimValues.funccount,optimValues.fval,optimValues.stepsize,optimValues.firstorderopt,...
+                  (x(1)),1000*(x(2)),toc(time_at_start));                
+            end
+        case 'interrupt'
+              % Probably no action here. Check conditions to see  
+              % whether optimization should quit.
+        case 'init'
+              fprintf('\nIteration      Func Count         NLL            Step Size      1st Order Optimality       Phi         Tau (ms)     Time Elapsed (s)\n');
+        case 'done'
+              % Cleanup of plots, guis, or final plot
+    otherwise
+    end
 end
