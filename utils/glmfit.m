@@ -433,9 +433,12 @@ xw = x .* sw(:,ones(1,p));
 clear x;
 % No pivoting, no basic solution.  We've removed dependent cols from x, and
 % checked the weights, so xw should be full rank.
-[Q,R] = qr(xw,0);
+[Q,R] = qr(xw,0); % AGB: the linear algebra in "wfit" is the computational workhorse of the entire glm fitting algorithm. It is highly optimized for this problem. Faster execution if xw is a gpuArray
 b = R \ (Q'*yw);
-
+% ALTHOUGH THOUGHT: you only need R output for final iteration because it's used for computing parameter estimate uncertainty. If all you
+% need is "b" for intermediate iterations you can replace last two lines with b = xw\yw; Then gpuArray
+% with single precision providse a rouglhy 40% speed improvement. Accuracy
+% may become a problem though. Would need to be tested.
 
 function mu = startingVals(distr,y,N)
 % Find a starting value for the mean, avoiding boundary values

@@ -256,27 +256,32 @@ end
 
 function stats = fit(X,Y,params,trials)
     if params.fit_adaptation
-        global time_at_start    
+        global time_at_start itransform
+        [transform,itransform] = deal(@(x)x);        
+        %transform=@(x)log(1+x); % identity near zero, but logarithmic as x->Inf
+        %itransform=@(x)max(0,exp(x)-1);
+        % makes fits converge faster when tau_phi is large
+        % I tried tanh but this needs to be scaled (by ~2e4) to allow large tau_phi
+        % and this leads to slow convergence when tau_phi is small.
+        params.transform=transform;
+        params.itransform=itransform;
         if params.useGPU
             Y=gpuArray(Y);
         end        
         covar_idx=find(ismember({params.dm.dspec.covar.label},{'left_clicks','right_clicks'}));  
         X_update_fun = @(phi,tau_phi)buildGLM.compileSparseDesignMatrix(params.dm.dspec, trials,...
-            struct('phi',phi,'tau_phi',tau_phi,'within_stream',params.within_stream) ,X, covar_idx);   % only remake the columns associated with the spike history term since the rest is common across cells             
-        time_at_start=tic;
-        %options=optimoptions('fminunc','UseParallel',false,'OptimalityTolerance',eps,'OutputFcn',@optim_status_fun);  % stop if you are taking tiny steps but not if the change in LL is small -- sometimes the gradient is really small far from the optimum and you should keep going until you get near the basin              
-        %optim_fun = @(x)NLL_fun(X_update_fun,Y,exp(x(1)),exp(x(2)),rmfield(params,'dm'));                
-        %[adaptation_stats.beta,adaptation_stats.NLL,adaptation_stats.exitflag,adaptation_stats.output,adaptation_stats.grad,adaptation_stats.hessian] = fminunc(optim_fun,log([params.phi;params.tau_phi]),options);                
+            struct('phi',phi,'tau_phi',tau_phi,'within_stream',params.within_stream) ,X, covar_idx);  % only remake the columns associated with the click terms since the rest is independent of the adaptation parameters
+        time_at_start=tic;              
         options=optimoptions('fmincon','UseParallel',false,'OutputFcn',@optim_status_fun,'Algorithm','active-set');  % stop if you are taking tiny steps but not if the change in LL is small -- sometimes the gradient is really small far from the optimum and you should keep going until you get near the basin              
-        optim_fun = @(x)NLL_fun(X_update_fun,Y,x(1),x(2),rmfield(params,'dm'));                        
+        optim_fun = @(x)NLL_fun(X_update_fun,Y,itransform(x(1)),itransform(x(2)),rmfield(params,'dm'));                        
         [adaptation_stats.beta,adaptation_stats.NLL,adaptation_stats.exitflag,adaptation_stats.output,adaptation_stats.lambda,...
-            adaptation_stats.grad,adaptation_stats.hessian] = fmincon(optim_fun,([params.phi;params.tau_phi]),[],[],[],[],[0 0],[Inf Inf],[],options);                        
+            adaptation_stats.grad,adaptation_stats.hessian] = fmincon(optim_fun,transform([params.phi;params.tau_phi]),[],[],[],[],transform([1e-10 2e-3]),transform([1e1 1e6]),[],options);                        
         [params.phi,adaptation_stats.phi]=deal(adaptation_stats.beta(1));
         [params.tau_phi,adaptation_stats.tau_phi] = deal(adaptation_stats.beta(2));            
         adaptation_stats.se=sqrt(diag(inv(adaptation_stats.hessian)));
         adaptation_stats.phi_range = (adaptation_stats.beta(1) +[-1 1]*adaptation_stats.se(1));
         adaptation_stats.tau_phi_range = (adaptation_stats.beta(2) +[-1 1]*adaptation_stats.se(2));     
-        dm = X_update_fun(params.phi,params.tau_phi);   % only remake the columns associated with the spike history term since the rest is common across cells             
+        dm = X_update_fun(params.phi,params.tau_phi);          
         X=dm.X;
     end
     options = statset('MaxIter',params.maxIter);   
@@ -290,7 +295,7 @@ function stats = fit(X,Y,params,trials)
 end
 
 function NLL = NLL_fun(X_update_fun,Y,phi,tau_phi,params)
-    dm = X_update_fun(phi,tau_phi);   % only remake the columns associated with the click terms since the rest is independent of the adaptation parameters
+    dm = X_update_fun(phi,tau_phi);  
     options = statset('MaxIter',params.maxIter);                  
     if params.useGPU
         dm.X=gpuArray(dm.X);
@@ -308,17 +313,23 @@ end
 
 function stop = optim_status_fun(x,optimValues,state)
     stop=false;
-    global time_at_start
+    global time_at_start itransform
     switch state
         case 'iter'
             if isempty(optimValues.stepsize)
-                fprintf('   %2d            %3d        %10.10e                         %3.3e           %3.3e      %4.1f         %6.1f\n',...
-                  optimValues.iteration,optimValues.funccount,optimValues.fval,optimValues.firstorderopt,...
-                  (x(1)),(x(2)),toc(time_at_start));
+                if isempty(optimValues.firstorderopt)
+                    fprintf('   %2d            %3d        %10.10e                                             %3.3e      %4.1f         %6.1f\n',...
+                        optimValues.iteration,optimValues.funccount,optimValues.fval,...
+                        itransform(x(1)),1000*itransform(x(2)),toc(time_at_start));
+                else
+                    fprintf('   %2d            %3d        %10.10e                         %3.3e           %3.3e      %4.1f         %6.1f\n',...
+                        optimValues.iteration,optimValues.funccount,optimValues.fval,optimValues.firstorderopt,...
+                       itransform(x(1)),1000*itransform(x(2)),toc(time_at_start));                        
+                end
             else
                 fprintf('   %2d            %3d        %10.10e     %3.3e           %3.3e           %3.3e      %4.1f         %6.1f\n',...
                   optimValues.iteration,optimValues.funccount,optimValues.fval,optimValues.stepsize,optimValues.firstorderopt,...
-                  (x(1)),1000*(x(2)),toc(time_at_start));                
+                  itransform(x(1)),1000*itransform(x(2)),toc(time_at_start));                
             end
         case 'interrupt'
               % Probably no action here. Check conditions to see  

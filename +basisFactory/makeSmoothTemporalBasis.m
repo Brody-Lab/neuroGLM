@@ -1,4 +1,4 @@
-function bases = makeSmoothTemporalBasis(shape, duration, nBases, binfun)
+function bases = makeSmoothTemporalBasis(shape, duration, nBases, expt)
 %
 % Input
 %   shape: 'raised cosine' or 'boxcar'
@@ -9,7 +9,7 @@ function bases = makeSmoothTemporalBasis(shape, duration, nBases, binfun)
 % Output
 %   BBstm: basis vectors
 
-nkbins = binfun(duration); % number of bins for the basis functions
+nkbins = expt.binfun(duration*expt.param.samplingFreq); % number of bins for the basis functions
 
 ttb = repmat((1:nkbins)', 1, nBases); % time indices for basis
 
@@ -48,8 +48,7 @@ bases.type = [shape '@' mfilename];
 bases.param.shape = shape;
 bases.param.duration = duration;
 bases.param.nBases = nBases;
-bases.param.binfun = binfun;
 bases.B = BBstm;
 bases.edim = size(bases.B, 2);
-bases.tr = ttb - 1;
-bases.centers = bcenters;
+bases.tr = (ttb - 1)*duration/nkbins;
+bases.centers = bcenters*duration/nkbins;

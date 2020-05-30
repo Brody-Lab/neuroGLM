@@ -1,19 +1,18 @@
-function expt = initExperiment(unitOfTime, binSize, uniqueID, param)
+function expt = initExperiment(binSize, uniqueID, param)
 % Initialize the Experiment structure that holds raw data
 % expt = initExperiment(unitOfTime, binSize, uniqueID)
-%
-%   unitOfTime: 'string' - 's' or 'ms' indicating a global unit of time
-%   binSize: [1] - duration of each time bin in units of unitOfTime
+%   binSize: [1] - duration of each time bin in units of seconds
 %   uniqueID: 'string' optional - Unique identifier for this experiment
 %       a compact string for easy future reference
 %   param: (any) optional - any potentially useful extra information
 %       associated with the entire experiment record (experimental
 %       parameters)
 
-assert(binSize > 0);
-assert(ischar(unitOfTime), 'Put a string for unit');
+% AGB 5/2020: Makes things easier to just decide that everything is going to be in seconds.
 
-expt = struct('unitOfTime', unitOfTime, 'binSize', binSize);
+assert(binSize > 0);
+
+expt = struct('unitOfTime', 'seconds', 'binSize', binSize);
 expt.binfun = @(t) (t == 0) + ceil(t/expt.binSize);
 expt.type = struct();
 expt.desc = struct();

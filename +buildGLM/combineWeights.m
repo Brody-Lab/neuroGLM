@@ -90,11 +90,11 @@ function [wout,wvarout] = combineWeights(dm, dspec, w , wcov, returncov)
             for sIdx = 1:sdim
                 w_sub = w(:,startIdx(kCov) + (1:basis.edim)-1 + basis.edim * (sIdx - 1));
                 wout.(covar.label).data = mean(w_sub*basis.B',1);    
-                wout.(covar.label).tr = (basis.tr(:, 1) + covar.offset/binSize) * binSize * ones(1, sdim);    
+                wout.(covar.label).tr = (basis.tr(:, 1) + covar.offset)   ;
                 if covSupplied
                     wvarout.(covar.label).cov = cov(w_sub*basis.B',1);                
                     wvarout.(covar.label).data = diag(wvarout.(covar.label).cov);
-                    wvarout.(covar.label).tr=(basis.tr(:, 1) + covar.offset/binSize) * binSize * ones(1, sdim);
+                    wvarout.(covar.label).tr=wout.(covar.label).tr;
                     if ~returncov
                         wvarout.(covar.label) = rmfield(wvarout.(covar.label),'cov'); 
                     end

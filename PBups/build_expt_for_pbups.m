@@ -3,7 +3,7 @@ function expt = build_expt_for_pbups(rawData,varargin)
     p.addParameter('bin_size_s',0.001,@(x)validateattributes(x,{'numeric'},{'scalar','positive'}));
     p.parse(varargin{:});
     params=p.Results;
-    expt = buildGLM.initExperiment('s', rawData.param.samplingFreq*params.bin_size_s, [rawData.param.rat,', ',rawData.param.sess_date],rawData.param);
+    expt = buildGLM.initExperiment(rawData.param.samplingFreq*params.bin_size_s, [rawData.param.rat,', ',rawData.param.sess_date],rawData.param);
     for f=1:length(rawData.timings)
         if isfield(rawData.trial,rawData.timings{f})
             expt = buildGLM.registerTiming(expt,rawData.timings{f},rawData.timings{f});

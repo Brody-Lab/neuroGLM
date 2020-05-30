@@ -3,13 +3,10 @@ function dspec = build_dspec_for_pbups(dspec,covariates,cellno)
     % Each covariate to include in the model and analysis is specified.
     % units here are assumed to be in ms
     
-   
-    bin_size_ms =  1e3 * dspec.expt.binSize / dspec.expt.param.samplingFreq;
-    
     % set some params
     n_click_bases = 8;
-    click_endpoints_ms = [20 1200];
-    click_nl_offset = 10;
+    click_endpoints_s = [0.02 1.2];
+    click_nl_offset = 0.01;
     
     %% make condition lambda functions
     left_cond = @(trial) (~trial.pokedR);
@@ -36,8 +33,8 @@ function dspec = build_dspec_for_pbups(dspec,covariates,cellno)
     covariates=unique(regexprep(covariates,'(.*[a-z])[0-9].*','$1'));     % remove trailing numbers because i search through all matching timing events anyway
     %% define click basis
     % good compromise that can explain posterior (fast) and anterior striatum (slow) click responses. also now with the offset it starts at zero.
-    click_basis=basisFactory.makeNonlinearRaisedCos(n_click_bases,bin_size_ms,click_endpoints_ms,click_nl_offset);   
-    smooth_basis_fun = @(duration_s,n_bins)basisFactory.makeSmoothTemporalBasis('raised cosine', duration_s * dspec.expt.param.samplingFreq, n_bins, dspec.expt.binfun);
+    click_basis=basisFactory.makeNonlinearRaisedCos(n_click_bases,click_endpoints_s,click_nl_offset,dspec.expt);   
+    smooth_basis_fun = @(duration,n_bins)basisFactory.makeSmoothTemporalBasis('raised cosine', duration , n_bins, dspec.expt);
     %% loop over covariates
     for i=1:length(covariates) % N.B. specifying the basis, all times should be in ms and as long as you supply the binfun, everything is taken care of if you have binning - AGB, 11/2019
         
@@ -48,39 +45,39 @@ function dspec = build_dspec_for_pbups(dspec,covariates,cellno)
                 
             case 'cpoke_in'
                 bs = smooth_basis_fun(2.5,8);
-                dspec = buildGLM.addCovariateTiming(dspec, 'cpoke_in','cpoke_in', 'Acausal filter aligned to cpoke_in', bs,-1.25 * dspec.expt.param.samplingFreq / dspec.expt.binSize);  
+                dspec = buildGLM.addCovariateTiming(dspec, 'cpoke_in','cpoke_in', 'Acausal filter aligned to cpoke_in', bs,-1.25);  
                 
             case 'cpoke_in_left'
                 if ismember('cpoke_in',covariates)
                     warning('Cpoke_in and cpoke_in_left are redundant covariates.');
                 end
                 bs = smooth_basis_fun(2.5,8);
-                dspec = buildGLM.addCovariateTiming(dspec, 'cpoke_in_left','cpoke_in', 'Acausal filter aligned to cpoke_in on left choice trials', bs,-1 * dspec.expt.param.samplingFreq / dspec.expt.binSize,left_cond);    
+                dspec = buildGLM.addCovariateTiming(dspec, 'cpoke_in_left','cpoke_in', 'Acausal filter aligned to cpoke_in on left choice trials', bs,-1 ,left_cond);    
 
             case 'cpoke_in_right'
                 if ismember('cpoke_in',covariates)
                     warning('Cpoke_in and cpoke_in_right are redundant covariates.');
                 end                
                 bs = smooth_basis_fun(2.5,8);
-                dspec = buildGLM.addCovariateTiming(dspec, 'cpoke_in_right','cpoke_in', 'Acausal filter aligned to cpoke_in on right choice trials', bs,-1 * dspec.expt.param.samplingFreq / dspec.expt.binSize,right_cond);    
+                dspec = buildGLM.addCovariateTiming(dspec, 'cpoke_in_right','cpoke_in', 'Acausal filter aligned to cpoke_in on right choice trials', bs,-1 ,right_cond);    
 
             case 'cpoke_out' 
                 bs = smooth_basis_fun(1.5,5);
-                dspec = buildGLM.addCovariateTiming(dspec, 'cpoke_out','cpoke_out', 'Acausal filter aligned to cpoke_out', bs,-0.75 * dspec.expt.param.samplingFreq / dspec.expt.binSize,right_cond);
+                dspec = buildGLM.addCovariateTiming(dspec, 'cpoke_out','cpoke_out', 'Acausal filter aligned to cpoke_out', bs,-0.75 ,right_cond);
 
             case 'cpoke_out_left'
                 if ismember('cpoke_out',covariates)
                     warning('Cpoke_out and cpoke_out_left are redundant covariates.');
                 end                
                 bs = smooth_basis_fun(1.5,5);
-                dspec = buildGLM.addCovariateTiming(dspec, 'cpoke_out_left','cpoke_out', 'Acausal filter aligned to cpoke_out on left choice trials', bs,-0.75 * dspec.expt.param.samplingFreq / dspec.expt.binSize,left_cond);
+                dspec = buildGLM.addCovariateTiming(dspec, 'cpoke_out_left','cpoke_out', 'Acausal filter aligned to cpoke_out on left choice trials', bs,-0.75,left_cond);
 
             case 'cpoke_out_right'  
                 if ismember('cpoke_out',covariates)
                     warning('Cpoke_out and cpoke_out_right are redundant covariates.');
                 end                   
                 bs = smooth_basis_fun(1.5,5);
-                dspec = buildGLM.addCovariateTiming(dspec, 'cpoke_out_right','cpoke_out', 'Acausal filter aligned to cpoke_out on right choice trials', bs,-0.75 * dspec.expt.param.samplingFreq / dspec.expt.binSize,right_cond);    
+                dspec = buildGLM.addCovariateTiming(dspec, 'cpoke_out_right','cpoke_out', 'Acausal filter aligned to cpoke_out on right choice trials', bs,-0.75,right_cond);    
 
             case 'stereo_click'        
                 dspec = buildGLM.addCovariateTiming(dspec, 'stereo_click','stereo_click', 'Causal filter aligned to clicks_on on left choice trials', click_basis,0);
@@ -117,39 +114,39 @@ function dspec = build_dspec_for_pbups(dspec,covariates,cellno)
                 
             case 'spoke_left'
                 bs = smooth_basis_fun(1,5);
-                dspec = buildGLM.addCovariateTiming(dspec, 'spoke_left','spoke', 'Acausal filter aligned to spoke on left choice hit trials', bs,-0.5 * dspec.expt.param.samplingFreq / dspec.expt.binSize,left_cond);
+                dspec = buildGLM.addCovariateTiming(dspec, 'spoke_left','spoke', 'Acausal filter aligned to spoke on left choice hit trials', bs,-0.5,left_cond);
     
             case 'spoke_right'
                 bs = smooth_basis_fun(1,5);
-                dspec = buildGLM.addCovariateTiming(dspec, 'spoke_right','spoke', 'Acausal filter aligned to spoke on right choice hit trials', bs,-0.5 * dspec.expt.param.samplingFreq / dspec.expt.binSize,right_cond);                 
+                dspec = buildGLM.addCovariateTiming(dspec, 'spoke_right','spoke', 'Acausal filter aligned to spoke on right choice hit trials', bs,-0.5 ,right_cond);                 
                 
             case 'spoke_left_hit'
                 if ismember('spoke_left',covariates)
                     warning('spoke_left and spoke_left_hit are redundant covariates.');
                 end                       
                 bs = smooth_basis_fun(1,5);
-                dspec = buildGLM.addCovariateTiming(dspec, 'spoke_left_hit','spoke', 'Acausal filter aligned to spoke on left choice hit trials', bs,-0.5 * dspec.expt.param.samplingFreq / dspec.expt.binSize,left_hit_cond);
+                dspec = buildGLM.addCovariateTiming(dspec, 'spoke_left_hit','spoke', 'Acausal filter aligned to spoke on left choice hit trials', bs,-0.5 ,left_hit_cond);
     
             case 'spoke_right_hit'
                 if ismember('spoke_right',covariates)
                     warning('spoke_right and spoke_right_hit are redundant covariates.');
                 end                    
                 bs = smooth_basis_fun(1,5);
-                dspec = buildGLM.addCovariateTiming(dspec, 'spoke_right_hit','spoke', 'Acausal filter aligned to spoke on right choice hit trials', bs,-0.5 * dspec.expt.param.samplingFreq / dspec.expt.binSize,right_hit_cond); 
+                dspec = buildGLM.addCovariateTiming(dspec, 'spoke_right_hit','spoke', 'Acausal filter aligned to spoke on right choice hit trials', bs,-0.5 ,right_hit_cond); 
     
            case 'spoke_left_miss'
                 if ismember('spoke_left',covariates)
                     warning('spoke_left and spoke_left_miss are redundant covariates.');
                 end                         
                 bs = smooth_basis_fun(1,5);
-                dspec = buildGLM.addCovariateTiming(dspec, 'spoke_left_miss','spoke', 'Acausal filter aligned to spoke on left choice miss trials', bs,-0.5 * dspec.expt.param.samplingFreq / dspec.expt.binSize,left_error_cond);
+                dspec = buildGLM.addCovariateTiming(dspec, 'spoke_left_miss','spoke', 'Acausal filter aligned to spoke on left choice miss trials', bs,-0.5 ,left_error_cond);
     
             case 'spoke_right_miss'
                 if ismember('spoke_right',covariates)
                     warning('spoke_right and spoke_right_miss are redundant covariates.');
                 end                       
                 bs = smooth_basis_fun(1,5);
-                dspec = buildGLM.addCovariateTiming(dspec, 'spoke_right_miss','spoke', 'Acausal filter aligned to spoke on right choice miss trials', bs,-0.5 * dspec.expt.param.samplingFreq / dspec.expt.binSize,right_error_cond);   
+                dspec = buildGLM.addCovariateTiming(dspec, 'spoke_right_miss','spoke', 'Acausal filter aligned to spoke on right choice miss trials', bs,-0.5 ,right_error_cond);   
                 
             otherwise
                 

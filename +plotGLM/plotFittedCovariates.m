@@ -2,7 +2,7 @@ function plotFittedCovariates(stats,varargin)
     p=inputParser;
     p.addParameter('matchylim',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
     p.addParameter('ilink',@(x)exp(x),@(x)validateattributes(x,{'function_handle'},{}));
-    p.addParameter('showOffClicks',true);
+    p.addParameter('showOffClicks',false);
     p.parse(varargin{:});
     params=p.Results;
     if ismember('link',p.UsingDefaults) && isfield(stats.params,'distribution') && strcmp(stats.params.distribution,'poisson')
@@ -28,12 +28,13 @@ function plotFittedCovariates(stats,varargin)
             if contains(label,'click') && params.showOffClicks
                 continue
             end
+            ts=stats.ws.(label).tr;          
             subplot(n_subplot_columns,n_subplot_columns,group_count);hold on;
             %subplot(2,3,group_count);
             if length(groups{kCov})==1
-                shadedErrorBar(stats.ws.(label).tr/1000, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data(:)'))-params.ilink(stats.ws.(label).data));hold on
+                shadedErrorBar(ts, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data(:)'))-params.ilink(stats.ws.(label).data));hold on
             else
-                h(count) =  shadedErrorBar(stats.ws.(label).tr/1000, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data(:)'))-params.ilink(stats.ws.(label).data),color.(matches{j}));  hold on
+                h(count) =  shadedErrorBar(ts, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data(:)'))-params.ilink(stats.ws.(label).data),color.(matches{j}));  hold on
                 if count>1
                     h(count).patch.FaceAlpha=0.55555;
                     if strcmp(label,'left_clicks') || strcmp(label,'right_clicks')
@@ -47,7 +48,7 @@ function plotFittedCovariates(stats,varargin)
             title_str = strrep(groups{kCov}{j},'_',' ');
             title_str = strrep(title_str,matches{j},'');
             title(title_str);
-            set(gca,'xlim',[min(stats.ws.(label).tr/1000) max(stats.ws.(label).tr/1000)]);
+            set(gca,'xlim',[min(ts) max(ts)]);
             xlabel('time (s)');
             ylabel('Gain');
         end
@@ -57,7 +58,7 @@ function plotFittedCovariates(stats,varargin)
         figure(1253);
         clf;
         subplot(1,3,1);
-        shadedErrorBar(stats.ws.stereo_click.tr/1000, params.ilink(stats.ws.stereo_click.data), params.ilink(stats.ws.stereo_click.data+sqrt(stats.wvars.stereo_click.data(:)'))-params.ilink(stats.ws.stereo_click.data));
+        shadedErrorBar(stats.ws.stereo_click.tr, params.ilink(stats.ws.stereo_click.data), params.ilink(stats.ws.stereo_click.data+sqrt(stats.wvars.stereo_click.data(:)'))-params.ilink(stats.ws.stereo_click.data));
         title('Stereo Click');
         xlabel('Time (s)');
         ylabel('Gain');
@@ -65,7 +66,7 @@ function plotFittedCovariates(stats,varargin)
         colors=jet(6);
         for i=1:3 % right
             label = ['left_clicks',num2str(i)];
-            h(i)=shadedErrorBar(stats.ws.(label).tr/1000, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data(:)'))-params.ilink(stats.ws.(label).data),{'color',colors(3-i+1,:)}); hold on;
+            h(i)=shadedErrorBar(stats.ws.(label).tr, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data(:)'))-params.ilink(stats.ws.(label).data),{'color',colors(3-i+1,:)}); hold on;
             h(i).patch.FaceAlpha=0;
             title('Left Clicks');
             xlabel('Time (s)');
@@ -75,7 +76,7 @@ function plotFittedCovariates(stats,varargin)
         subplot(1,3,3);
         for i=1:3 % right
             label = ['right_clicks',num2str(i)];
-            h(i)=shadedErrorBar(stats.ws.(label).tr/1000, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data(:)'))-params.ilink(stats.ws.(label).data),{'color',colors(i+3,:)});   hold on;
+            h(i)=shadedErrorBar(stats.ws.(label).tr, params.ilink(stats.ws.(label).data), params.ilink(stats.ws.(label).data+sqrt(stats.wvars.(label).data(:)'))-params.ilink(stats.ws.(label).data),{'color',colors(i+3,:)});   hold on;
             h(i).patch.FaceAlpha=0;
             title('Right Clicks');
             xlabel('Time (s)');

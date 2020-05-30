@@ -1,4 +1,4 @@
-function bases = makeNonlinearRaisedCos(nBases, binSize, endPoints, nlOffset)
+function bases = makeNonlinearRaisedCos(nBases, endPoints, nlOffset, expt)
 % Make nonlinearly stretched basis consisting of raised cosines.
 % Nonlinear stretching allows faster changes near the event.
 %
@@ -24,7 +24,7 @@ function bases = makeNonlinearRaisedCos(nBases, binSize, endPoints, nlOffset)
 % nonlinearity for stretching x axis (and its inverse)
 nlin = @(x)(log(x + 1e-20));
 invnl = @(x)(exp(x) - 1e-20);
-
+binSize = expt.binSize / expt.param.samplingFreq;
 % I added this check because the case where endpoints(1) is negative hasn't
 % really been implemented properly. AGB 9/2019. (What I had been trying to
 % do was having non-linearly scaled raised cosines that could extend both

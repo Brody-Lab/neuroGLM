@@ -53,11 +53,16 @@ function dm = compileSparseDesignMatrix(dspec, trialIndices, adaptation_params, 
                     stim = full(stim);
             end
             if isfield(covar, 'basis') && ~isempty(covar.basis)
+                if covar.offset==0
+                    offset=0;
+                else
+                    offset=dspec.expt.binfun(dspec.expt.param.samplingFreq*covar.offset);
+                end
                 switch covar.basis.type
                     case 'makeNonlinearRaisedCos'
-                        dm.X(ndx, sidx) = basisFactory.convBasis(stim, covar.basis, covar.offset);
+                        dm.X(ndx, sidx) = basisFactory.convBasis(stim, covar.basis, offset); % offset should be in the base units of dspec.expt
                     case 'raised cosine@makeSmoothTemporalBasis'
-                        dm.X(ndx, sidx) = basisFactory.convBasis(stim, covar.basis, covar.basis.param.binfun(covar.offset));
+                        dm.X(ndx, sidx) = basisFactory.convBasis(stim, covar.basis, offset); % offset should be in the base units of dspec.expt
                 end
             else
                 dm.X(ndx, sidx) = stim; % adaptation not applied here, since without a basis set these covariates don't extend in time and therefore are not subject to adaptation
