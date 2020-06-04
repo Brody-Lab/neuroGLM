@@ -1,19 +1,15 @@
-function dm = compileSparseDesignMatrix(dspec, trialIndices, adaptation_params, covar_idx)
+function X = updateSparseDesignMatrix_covar(dspec, trialIndices, adaptation_params, covar_idx, X)
     % Compile information from experiment according to given DesignSpec
     % AGB: Now you can choose to only compute the bits of the design matrix for a
     % subset of the covariates by supplying an index of the covariates you
     % want to compute (covar_idx). Useful when fitting the adaptation
     % params where the columns corresponding to the clicks need to be
     % recomputed repeatedly during fitting.
+    
     expt = dspec.expt;
+    expt.trial=expt.trial(trialIndices);
     subIdxs = buildGLM.getGroupIndicesFromDesignSpec(dspec);
     trialT = expt.binfun([expt.trial.duration]);
-    totalT = sum(trialT);
-    if nargin<4
-        covar_idx = 1:numel(dspec.covar);
-    end
-    dm.X = zeros(totalT, sum([dspec.covar.edim]));      
-    trialIndices = trialIndices(:)';
     left_click_idx={dspec.covar.label}=="left_clicks";
     right_click_idx={dspec.covar.label}=="right_clicks";
     if nargin>2 &&  abs(adaptation_params.phi-1)>eps && abs(adaptation_params.tau_phi)>eps && any(ismember(covar_idx,find(left_click_idx|right_click_idx)))
@@ -21,7 +17,7 @@ function dm = compileSparseDesignMatrix(dspec, trialIndices, adaptation_params, 
     else
         adapt=false;
     end
-    for k = trialIndices
+    for k = 1:length(expt.trial)
         ndx = (sum(trialT(1:k))-(trialT(k)-1)):sum(trialT(1:k));
         if adapt
             % if adapting clicks, perform the adaptation at the sampling resolution
@@ -62,22 +58,18 @@ function dm = compileSparseDesignMatrix(dspec, trialIndices, adaptation_params, 
                 end
                 switch covar.basis.type
                     case 'makeNonlinearRaisedCos'
-                        dm.X(ndx, sidx) = basisFactory.convBasis(stim, covar.basis, offset); % offset should be in the base units of dspec.expt
+                        X(ndx, sidx) = basisFactory.convBasis(stim, covar.basis, offset); % offset should be in the base units of dspec.expt
                     case 'raised cosine@makeSmoothTemporalBasis'
-                        dm.X(ndx, sidx) = basisFactory.convBasis(stim, covar.basis, offset); % offset should be in the base units of dspec.expt
+                        X(ndx, sidx) = basisFactory.convBasis(stim, covar.basis, offset); % offset should be in the base units of dspec.expt
                 end
             else
-                dm.X(ndx, sidx) = stim; % adaptation not applied here, since without a basis set these covariates don't extend in time and therefore are not subject to adaptation
+                X(ndx, sidx) = stim; % adaptation not applied here, since without a basis set these covariates don't extend in time and therefore are not subject to adaptation
             end
         end
     end
-
-    dm.trialIndices = trialIndices;
-    dm.dspec = dspec;
-    dm.covar_idx=covar_idx;
     
     %% Check sanity of the design
-    if any(~isfinite(dm.X(:)))
+    if any(~isfinite(X(:)))
         warning('Design matrix contains NaN or Inf...this is not good!');
     end
 end

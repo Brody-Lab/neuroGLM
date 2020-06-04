@@ -4,7 +4,7 @@ function ndx = getSpikeIndicesforTrial(expt,trialIndex)
     if islogical(trialIndex)
         trialIndex = find(trialIndex(:)');
     end
-    for t=trialIndex
+    for t=trialIndex(:)'
         if t==1
             ndx = [ndx 1:trialT(t)];    
         else

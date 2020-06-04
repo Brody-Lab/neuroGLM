@@ -79,16 +79,19 @@ function [covariate_stats,stats]=get_covariate_stats_internal(stats,dm,dspec,var
         covariate_stats.(covars{i}).max_deviation_time = stats.ws.(covars{i}).tr(peak_idx);
         covariate_stats.(covars{i}).max_deviation = params.ilink(data(peak_idx));  
         covariate_stats.(covars{i}).max_deviation_pval = empirical_p(0,samples(:,peak_idx));
-        if any(tr<0)
-            ops = {@lt,@gt};
-            for k=1:2
-                idx = ops{k}(tr,0);
-                data = stats.ws.(covars{i}).data(idx);
+        ops = {@lt,@gt};
+        for k=1:2
+            idx = ops{k}(tr,0);
+            data = stats.ws.(covars{i}).data(idx);
+            covariate_stats.(covars{i}).prepost_idx{k} = find(idx);            
+            if any(idx)
                 covariate_stats.(covars{i}).average_prepost(k) = mean(params.ilink(data));
                 covariate_stats.(covars{i}).average_pval_prepost(k) = empirical_p(DC,mean(params.ilink(samples(:,idx)),2));                     
-                covariate_stats.(covars{i}).prepost_idx{k} = idx;
+            else
+                covariate_stats.(covars{i}).average_prepost(k) =NaN;
+                covariate_stats.(covars{i}).average_pval_prepost(k)=NaN;                
             end
-        end        
+        end
     end             
     %% left and right clicks    
     if isfield(stats.wsamples,'left_clicks3')

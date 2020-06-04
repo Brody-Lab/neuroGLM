@@ -112,6 +112,7 @@ function [bb,dev,stats] = glmfit(x,y,distr,varargin)
 
 %   Copyright 1993-2016 The MathWorks, Inc.
 
+return_resid=false;
 
 if nargin < 2
     error(message('stats:glmfit:TooFewInputs'));
@@ -349,28 +350,40 @@ if nargout > 2
     switch(distr)
     case 'normal'
         ssr = sum(pwts .* (y - mu).^2);
-        anscresid = y - mu;
+        if return_resid
+            anscresid = y - mu;
+        end
     case 'binomial'
         ssr = sum(pwts .* (y - mu).^2 ./ (mu .* (1 - mu) ./ N));
-        t = 2/3;
-        anscresid = beta(t,t) * ...
-            (betainc(y,t,t)-betainc(mu,t,t)) ./ ((mu.*(1-mu)).^(1/6) ./ sqrt(N));
+        if return_resid        
+            t = 2/3;
+            anscresid = beta(t,t) * ...
+                (betainc(y,t,t)-betainc(mu,t,t)) ./ ((mu.*(1-mu)).^(1/6) ./ sqrt(N));
+        end
     case 'poisson'
         ssr = sum(pwts .* (y - mu).^2 ./ mu);
-        anscresid = 1.5 * ((y.^(2/3) - mu.^(2/3)) ./ mu.^(1/6));
+        if return_resid
+            anscresid = 1.5 * ((y.^(2/3) - mu.^(2/3)) ./ mu.^(1/6));
+        end
     case 'gamma'
         ssr = sum(pwts .* ((y - mu) ./ mu).^2);
-        anscresid = 3 * (y.^(1/3) - mu.^(1/3)) ./ mu.^(1/3);
+        if return_resid
+            anscresid = 3 * (y.^(1/3) - mu.^(1/3)) ./ mu.^(1/3);
+        end
     case 'inverse gaussian'
         ssr = sum(pwts .* ((y - mu) ./ mu.^(3/2)).^2);
-        anscresid = (log(y) - log(mu)) ./ mu;
+        if return_resid
+            anscresid = (log(y) - log(mu)) ./ mu;
+        end
     end
 
     % Compute residuals, using original count scale for binomial
-    if (isequal(distr, 'binomial'))
-        resid = (y - mu) .* N;
-    else
-        resid  = y - mu;
+    if return_resid
+        if (isequal(distr, 'binomial'))
+            resid = (y - mu) .* N;
+        else
+            resid  = y - mu;
+        end
     end
 
     dfe = max(n - p, 0);
@@ -415,11 +428,12 @@ if nargout > 2
         stats.p = NaN(size(bb),class(bb));
         stats.covb = NaN(length(bb),class(bb));
     end
-
-    stats.resid  = insertnan(wasnan, resid);
-    stats.residp = insertnan(wasnan, (y - mu) ./ (sqrtvarFun(mu) + (y==mu)));
-    stats.residd = insertnan(wasnan, sign(y - mu) .* sqrt(max(0,di)));
-    stats.resida = insertnan(wasnan, anscresid);
+    if return_resid
+        stats.resid  = insertnan(wasnan, resid);
+        stats.residp = insertnan(wasnan, (y - mu) ./ (sqrtvarFun(mu) + (y==mu)));
+        stats.residd = insertnan(wasnan, sign(y - mu) .* sqrt(max(0,di)));
+        stats.resida = insertnan(wasnan, anscresid);
+    end
     
     stats.wts = 1./sqrtirls.^2;
 end

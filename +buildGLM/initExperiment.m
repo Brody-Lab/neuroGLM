@@ -35,7 +35,7 @@ else
     expt.id = [datestr(now, 30) '@' hostname];
 end
 
-if nargin > 3
+if nargin > 2
     expt.param = param;
 else
     expt.param = struct();
