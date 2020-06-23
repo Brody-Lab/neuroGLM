@@ -243,7 +243,6 @@ end
 
 function [stats,Yhat] = fit(X,Y,params,trials)
     if params.fit_adaptation
-        sizeY=size(Y,1);
         [transform,itransform] = deal(@(x)x);        
         %transform=@(x)log(1+x); % identity near zero, but logarithmic as x->Inf
         %itransform=@(x)max(0,exp(x)-1);
@@ -257,12 +256,12 @@ function [stats,Yhat] = fit(X,Y,params,trials)
         end   
         % init
         params.phi=0.5;
-        params.tau_phi=0.1;
+        params.tau_phi=0.3;
         covar_idx=find(ismember({params.dm.dspec.covar.label},{'left_clicks','right_clicks'}));        
         X_update_fun = @(phi,tau_phi)buildGLM.updateSparseDesignMatrix_covar(params.dm.dspec, trials, struct('phi',phi,'tau_phi',tau_phi,'within_stream',params.within_stream), covar_idx, X);
         time_at_start=tic;              
-        osf = @(x,optimValues,state)optim_status_fun(x,optimValues,state,time_at_start,itransform,sizeY);
-        options=optimoptions('fmincon','UseParallel',false,'OutputFcn',osf,'Algorithm','active-set','FunctionTolerance',eps);  % stop if you are taking tiny steps but not if the change in LL is small -- sometimes the gradient is really small far from the optimum and you should keep going until you get near the basin              
+        osf = @(x,optimValues,state)optim_status_fun(x,optimValues,state,time_at_start,itransform);
+        options=optimoptions('fmincon','UseParallel',false,'OutputFcn',osf,'Algorithm','interior-point','FunctionTolerance',eps,'StepTolerance',1e-8);  % stop if you are taking tiny steps but not if the change in LL is small -- sometimes the gradient is really small far from the optimum and you should keep going until you get near the basin              
         optim_fun = @(x)NLL_fun(X_update_fun,Y,itransform(x(1)),itransform(x(2)),rmfield(params,'dm'));                        
         [adaptation_stats.beta,adaptation_stats.NLL,adaptation_stats.exitflag,adaptation_stats.output,adaptation_stats.lambda,...
             adaptation_stats.grad,adaptation_stats.hessian] = fmincon(optim_fun,transform([params.phi;params.tau_phi]),[],[],[],[],transform([1e-10 2e-3]),transform([1e1 1e6]),[],options);                        
@@ -318,7 +317,7 @@ function NLL = NLL_fun(X_update_fun,Y,phi,tau_phi,params)
     NLL=gather(NLL);
 end
 
-function stop = optim_status_fun(x,optimValues,state,time_at_start,itransform,sizeY)
+function stop = optim_status_fun(x,optimValues,state,time_at_start,itransform)
     stop=false;
     switch state
         case 'iter'
