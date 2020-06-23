@@ -9,6 +9,7 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     p.addParameter('cellno',[]);
     p.addParameter('kfold',1,@(x)validateattributes(x,{'numeric'},{'scalar','integer','>',0}));
     p.addParameter('save',false,@(x)validateattributes(x,{'logical'},{'scalar'}));
+    p.addParameter('create_pool',false,@(x)validateattributes(x,{'logical'},{'scalar'}));    
     p.addParameter('n_workers',1,@(x)validateattributes(x,{'numeric'},{'scalar','integer','>',0}));    % parallelization operates over cells unless cross-validation is used (i.e. kfold>1) in which case it operates over cross-validation folds
     p.addParameter('maxIter',25,@(x)validateattributes(x,{'numeric'},{'positive','scalar'}));
     p.addParameter('bin_size_s',0.001,@(x)validateattributes(x,{'numeric'},{'positive','scalar'}));  % resolution of the model. predictions have this bin size.  
@@ -144,8 +145,11 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     params.dm=dm;        
     params.dm.dspec.expt.trial = rmfield(dm.dspec.expt.trial,trial_fields(is_spk_field)); 
     %% loop over cells
-    if params.n_workers>1 && (isempty(params.kfold) || params.kfold<2) % looping over folds is preferred
-        parpool(params.n_workers);
+    if params.n_workers>1 
+        if params.create_pool
+            delete(gcp('nocreate'));
+            parpool(params.n_workers);
+        end
         parfor c=1:sum(responsive_enough)
             cellno = params.cellno(responsive_cells(c));
             fprintf('Cell id %g (%g of %g to fit):\n',cellno,c,sum(responsive_enough));           
@@ -212,8 +216,11 @@ function [stats,Yhat,Yhat_cv] = mainLoop(X,Y,params)
                 train_idx{i} = getSpkIdxFun(stats.cvp.training(i));
                 test_idx{i} = getSpkIdxFun(stats.cvp.test(i));
             end
-            if params.n_workers>1
-                parpool(params.n_workers);
+            if params.n_workers>1 && isempty(getCurrentTask()) %% only parallelize here if not already in a parallel loop over cells
+                if params.create_pool
+                    delete(gcp('nocreate'));    
+                    parpool(params.n_workers);
+                end
                 for i=params.kfold:-1:1
                     Xs{i}=X(train_idx{i},:);
                     idx{i} = find(stats.cvp.training(i));
