@@ -144,7 +144,7 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     params.dm=dm;        
     params.dm.dspec.expt.trial = rmfield(dm.dspec.expt.trial,trial_fields(is_spk_field)); 
     %% loop over cells
-    if params.n_workers>1 && (isempty(params.kfold) || params.kfold<2)
+    if params.n_workers>1 && (isempty(params.kfold) || params.kfold<2) % looping over folds is preferred
         parpool(params.n_workers);
         parfor c=1:sum(responsive_enough)
             cellno = params.cellno(responsive_cells(c));
@@ -214,8 +214,13 @@ function [stats,Yhat,Yhat_cv] = mainLoop(X,Y,params)
             end
             if params.n_workers>1
                 parpool(params.n_workers);
+                for i=params.kfold:-1:1
+                    Xs{i}=X(train_idx{i},:);
+                    idx{i} = find(stats.cvp.training(i));
+                    Ys{i}=Y(train_idx{i});
+                end
                 parfor i=1:params.kfold 
-                    cv_stats(i) = fit(X(train_idx{i},:),Y(train_idx{i}), params, find(stats.cvp.training(i)));  
+                    cv_stats(i) = fit(Xs{i},Ys{i}, params, idx{i});  
                 end    
             else
                 for i=params.kfold:-1:1
