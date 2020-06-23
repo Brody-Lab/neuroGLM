@@ -10,6 +10,7 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     p.addParameter('kfold',1,@(x)validateattributes(x,{'numeric'},{'scalar','integer','>',0}));
     p.addParameter('save',false,@(x)validateattributes(x,{'logical'},{'scalar'}));
     p.addParameter('create_pool',false,@(x)validateattributes(x,{'logical'},{'scalar'}));    
+    p.addParameter('parallelize_by_cells',true,@(x)validateattributes(x,{'logical'},{'scalar'}));        
     p.addParameter('n_workers',1,@(x)validateattributes(x,{'numeric'},{'scalar','integer','>',0}));    % parallelization operates over cells unless cross-validation is used (i.e. kfold>1) in which case it operates over cross-validation folds
     p.addParameter('maxIter',25,@(x)validateattributes(x,{'numeric'},{'positive','scalar'}));
     p.addParameter('bin_size_s',0.001,@(x)validateattributes(x,{'numeric'},{'positive','scalar'}));  % resolution of the model. predictions have this bin size.  
@@ -145,7 +146,7 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     params.dm=dm;        
     params.dm.dspec.expt.trial = rmfield(dm.dspec.expt.trial,trial_fields(is_spk_field)); 
     %% loop over cells
-    if params.n_workers>1 
+    if params.n_workers>1 && params.parallelize_by_cells
         if params.create_pool
             delete(gcp('nocreate'));
             parpool(params.n_workers);
