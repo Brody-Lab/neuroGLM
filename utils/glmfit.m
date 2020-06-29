@@ -304,7 +304,7 @@ while iter <= iterLim
 
     % Compute coefficient estimates for this iteration - the IRLS step
     b_old = b;
-    [b,R] = wfit(z - offset, x, sqrtw);
+    b = wfit(z - offset, x, sqrtw);
 
     % Form current linear predictor, including offset
     eta = offset + x * b;
@@ -326,7 +326,10 @@ while iter <= iterLim
     end
 
     % Check stopping conditions
-    if (~any(abs(b-b_old) > convcrit * max(seps, abs(b_old)))), break; end
+    if (~any(abs(b-b_old) > convcrit * max(seps, abs(b_old))))
+        [b,R] = wfit(z - offset, x, sqrtw);        %compute R
+        break 
+    end
 end
 if iter > iterLim
     warning(message('stats:glmfit:IterationLimit'));
@@ -440,6 +443,9 @@ end
 
 
 function [b,R] = wfit(y,x,sw)
+% AGB: the linear algebra in "wfit" is the computational workhorse of the
+% entire glm fitting algorithm. It is highly optimized for this problem. Faster execution if xw and yw are a gpuArray
+
 % Perform a weighted least squares fit
 [~,p] = size(x);
 yw = y .* sw;
@@ -447,12 +453,14 @@ xw = x .* sw(:,ones(1,p));
 clear x;
 % No pivoting, no basic solution.  We've removed dependent cols from x, and
 % checked the weights, so xw should be full rank.
-[Q,R] = qr(xw,0); % AGB: the linear algebra in "wfit" is the computational workhorse of the entire glm fitting algorithm. It is highly optimized for this problem. Faster execution if xw is a gpuArray
-b = R \ (Q'*yw);
-% ALTHOUGH THOUGHT: you only need R output for final iteration because it's used for computing parameter estimate uncertainty. If all you
-% need is "b" for intermediate iterations you can replace last two lines with b = xw\yw; Then gpuArray
-% with single precision providse a rouglhy 40% speed improvement. Accuracy
-% may become a problem though. Would need to be tested.
+if nargout>1
+    [~,R] = qr(gather(xw),0); % you only need R output for final iteration because it's used for computing parameter estimate uncertainty.
+end
+b = xw \ yw; 
+% single precision providse a roughly 40% speed improvement. Accuracy may become a problem though. Would need to be tested.
+if any(isnan(b))
+   error('Error in IRLS: weights returned NaN.'); % in some rare cases, this happens when on GPU, but not with same data on CPU. No idea why.
+end
 
 function mu = startingVals(distr,y,N)
 % Find a starting value for the mean, avoiding boundary values
