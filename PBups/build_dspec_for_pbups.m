@@ -1,4 +1,10 @@
-function dspec = build_dspec_for_pbups(dspec,covariates,cellno)
+function dspec = build_dspec_for_pbups(dspec,covariates,cellno,varargin)
+    p=inputParser;
+    p.addParameter('choice_time_back_s',0.75,@(x)validateattributes(x,{'numeric'},{'scalar','nonnegative'})); % choice kernels extend backwards acausally in time before stimulus end by this many seconds
+    p.addParameter('include_mono_clicks',true,@(x)validateattributes(x,{'logical'},{'scalar'}));
+    p.parse(varargin{:});
+    params=p.Results;       
+
     % Build 'designSpec' which specifies how to generate the design matrix
     % Each covariate to include in the model and analysis is specified.
     % units here are assumed to be in ms
@@ -62,22 +68,22 @@ function dspec = build_dspec_for_pbups(dspec,covariates,cellno)
                 dspec = buildGLM.addCovariateTiming(dspec, 'cpoke_in_right','cpoke_in', 'Acausal filter aligned to cpoke_in on right choice trials', bs,-1 ,right_cond);    
 
             case 'cpoke_out' 
-                bs = smooth_basis_fun(1.5,5);
-                dspec = buildGLM.addCovariateTiming(dspec, 'cpoke_out','cpoke_out', 'Acausal filter aligned to cpoke_out', bs,-0.75 ,right_cond);
+                bs = smooth_basis_fun(0.75+params.choice_time_back_s,5);
+                dspec = buildGLM.addCovariateTiming(dspec, 'cpoke_out','cpoke_out', 'Acausal filter aligned to cpoke_out', bs,-params.choice_time_back_s ,right_cond);
 
             case 'cpoke_out_left'
                 if ismember('cpoke_out',covariates)
                     warning('Cpoke_out and cpoke_out_left are redundant covariates.');
                 end                
-                bs = smooth_basis_fun(1.5,5);
-                dspec = buildGLM.addCovariateTiming(dspec, 'cpoke_out_left','cpoke_out', 'Acausal filter aligned to cpoke_out on left choice trials', bs,-0.75,left_cond);
+                bs = smooth_basis_fun(0.75+params.choice_time_back_s,5);
+                dspec = buildGLM.addCovariateTiming(dspec, 'cpoke_out_left','cpoke_out', 'Acausal filter aligned to cpoke_out on left choice trials', bs,-params.choice_time_back_s,left_cond);
 
             case 'cpoke_out_right'  
                 if ismember('cpoke_out',covariates)
                     warning('Cpoke_out and cpoke_out_right are redundant covariates.');
                 end                   
-                bs = smooth_basis_fun(1.5,5);
-                dspec = buildGLM.addCovariateTiming(dspec, 'cpoke_out_right','cpoke_out', 'Acausal filter aligned to cpoke_out on right choice trials', bs,-0.75,right_cond);    
+                bs = smooth_basis_fun(0.75+params.choice_time_back_s,5);
+                dspec = buildGLM.addCovariateTiming(dspec, 'cpoke_out_right','cpoke_out', 'Acausal filter aligned to cpoke_out on right choice trials', bs,-params.choice_time_back_s,right_cond);    
 
             case 'stereo_click'        
                 dspec = buildGLM.addCovariateTiming(dspec, 'stereo_click','stereo_click', 'Causal filter aligned to clicks_on on left choice trials', click_basis,0);
@@ -95,22 +101,28 @@ function dspec = build_dspec_for_pbups(dspec,covariates,cellno)
                 dspec = buildGLM.addCovariateTiming(dspec, 'stereo_click_right','stereo_click', 'Causal filter aligned to clicks_on on right choice trials', click_basis,right_cond);
 
             case 'left_clicks'
-                left_click_timings = timings(contains(timings,'left_clicks'));
-                for k=1:length(left_click_timings)
-                    dspec = buildGLM.addCovariateTiming(dspec, left_click_timings{k},[], left_click_timings{k}, click_basis,0);
+                if params.include_mono_clicks
+                    left_click_timings = timings(contains(timings,'left_clicks'));
+                    for k=1:length(left_click_timings)
+                       dspec = buildGLM.addCovariateTiming(dspec, left_click_timings{k},[], left_click_timings{k}, click_basis,0);
+                    end
                 end
 
             case 'right_clicks'
-                right_click_timings = timings(contains(timings,'right_clicks'));
-                for k=1:length(right_click_timings)
-                    dspec = buildGLM.addCovariateTiming(dspec, right_click_timings{k},[], right_click_timings{k}, click_basis,0);
+                if params.include_mono_clicks                
+                    right_click_timings = timings(contains(timings,'right_clicks'));
+                    for k=1:length(right_click_timings)
+                       dspec = buildGLM.addCovariateTiming(dspec, right_click_timings{k},[], right_click_timings{k}, click_basis,0);
+                    end
                 end
 
             case 'all_clicks'
-                all_click_timings = timings(contains(timings,'all_clicks'));                
-                for k=1:length(all_click_timings)
-                    dspec = buildGLM.addCovariateTiming(dspec, all_click_timings{k},[], all_click_timings{k}, click_basis,0);
-                end
+                if params.include_mono_clicks
+                    all_click_timings = timings(contains(timings,'all_clicks'));                
+                    for k=1:length(all_click_timings)
+                        dspec = buildGLM.addCovariateTiming(dspec, all_click_timings{k},[], all_click_timings{k}, click_basis,0);
+                    end
+                end          
                 
             case 'spoke_left'
                 bs = smooth_basis_fun(1,5);

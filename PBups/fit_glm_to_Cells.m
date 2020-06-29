@@ -5,7 +5,6 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     % Pillow lab.
     %% parse and validate inputs
     p=inputParser;
-    p.KeepUnmatched=true;    
     p.addParameter('cellno',[]);
     p.addParameter('kfold',1,@(x)validateattributes(x,{'numeric'},{'scalar','integer','>',0}));
     p.addParameter('save',false,@(x)validateattributes(x,{'logical'},{'scalar'}));
@@ -24,6 +23,8 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     p.addParameter('tau_phi',0,@(x)validateattributes(x,{'numeric'},{'scalar','nonnegative'})); % recovery time constant of C
     p.addParameter('within_stream',false,@(x)validateattributes(x,{'logical'},{'scalar'})); % within_stream adaptation flag. false by default, given empirical findings in Brunton et al. 2015    
     p.addParameter('fit_adaptation',true,@(x)validateattributes(x,{'logical'},{'scalar'})); % whether or not to fit phi and tau_phi for each neuron using gradient descent
+    p.addParameter('choice_time_back_s',0.75,@(x)validateattributes(x,{'numeric'},{'scalar','nonnegative'})); % choice kernels extend backwards acausally in time before stimulus end by this many seconds
+    p.addParameter('include_mono_clicks',true,@(x)validateattributes(x,{'logical'},{'scalar'}));    
     p.parse(varargin{:});
     params=p.Results;
     validatestring(params.distribution,{'poisson','normal'},mfilename,'distribution');
@@ -50,6 +51,10 @@ function stats = fit_glm_to_Cells(Cells,varargin)
         [~,b,c] = fileparts(mat_file_name);
         fprintf('Loading %s ... ',[b,c]);tic;        
         Cells = load(Cells);       
+        fields=fieldnames(Cells);
+        if length(fields)==1
+            Cells=Cells.(fields{1}); % if not saved with -struct flag
+        end
         fprintf('took %s.\n',timestr(toc));
         Cells.mat_file_name = mat_file_name;
     end
@@ -71,9 +76,12 @@ function stats = fit_glm_to_Cells(Cells,varargin)
         if isempty(params.save_path)
             [a,b,~] = fileparts(Cells.mat_file_name);
             save_subdir = [datestr(now,'YYYY_mm_dd_HH_MM_SS'),'_glmfits'];
-            params.save_path = fullfile(a,b,save_subdir);
+            params.save_path = fullfile(a,save_subdir);
         end
-        mat_file_name = fullfile(params.full_save_path,'_glmfits_save_test.mat');
+        if ~isdir(params.save_path)
+            mkdir(params.save_path);
+        end
+        mat_file_name = fullfile(params.save_path,'_glmfits_save_test.mat');
         test=[];
         save(mat_file_name,'test','-v7');
         delete(mat_file_name);   
@@ -92,7 +100,7 @@ function stats = fit_glm_to_Cells(Cells,varargin)
         covariates = setdiff(covariates,{'cpoke_out'});
     end    
     dspec_base = buildGLM.initDesignSpec(expt);    
-    dspec_base = build_dspec_for_pbups(dspec_base,covariates,[]);
+    dspec_base = build_dspec_for_pbups(dspec_base,covariates,[],'choice_time_back_s',params.choice_time_back_s,'include_mono_clicks',params.include_mono_clicks);
     dm = buildGLM.compileSparseDesignMatrix(dspec_base, 1:nTrials, params);
     X_base = dm.X;
     ncells=rawData.param.ncells;
@@ -152,19 +160,20 @@ function stats = fit_glm_to_Cells(Cells,varargin)
             parpool(params.n_workers);
         end
         parfor c=1:sum(responsive_enough)
-            cellno = params.cellno(responsive_cells(c));
-            fprintf('Cell id %g (%g of %g to fit):\n',cellno,c,sum(responsive_enough));           
+            cellno(c)=params.cellno(responsive_cells(c));                 
+            fprintf('Cell id %g (%g of %g to fit):\n',cellno(c),c,sum(responsive_enough));           
             [stats(c),spikes(c).Yhat,spikes(c).Yhat_cv] = mainLoop(X{c},spikes(c).Y,params);
-            stats(c).cellno=cellno;               
         end    
     else
         for c=sum(responsive_enough):-1:1
-            cellno = params.cellno(responsive_cells(c));            
-            fprintf('Cell id %g (%g of %g to fit):\n',cellno,c,sum(responsive_enough));           
+            cellno(c)=params.cellno(responsive_cells(c));                             
+            fprintf('Cell id %g (%g of %g to fit):\n',cellno(c),c,sum(responsive_enough));           
             [stats(c),spikes(c).Yhat,spikes(c).Yhat_cv] = mainLoop(X{c},spikes(c).Y,params);
-            stats(c).cellno=cellno;   
         end
     end  
+    for c=sum(responsive_enough):-1:1
+        stats(c).cellno= cellno(c); % add in separate loop to avoid assignment between dissimilar structures           
+    end
     %% save
     params.rat = Cells.rat;
     params.sess_date = Cells.sess_date;
@@ -247,7 +256,7 @@ function [stats,Yhat,Yhat_cv] = mainLoop(X,Y,params)
             fprintf('Took %s.\n',timestr(toc));            
         end
     end
-    stats.covariate_stats = get_covariate_stats(stats,params);
+    %stats.covariate_stats = get_covariate_stats(stats,params);
     fields = fieldnames(stats.wvars);
     for f=1:length(fields) % you can remove covariance structure now that summary has been computed
         stats.wvars.(fields{f}) = rmfield(stats.wvars.(fields{f}),'cov');
@@ -268,8 +277,8 @@ function [stats,Yhat] = fit(X,Y,params,trials)
             Y=gpuArray(Y);
         end   
         % init
-        params.phi=0.5;
-        params.tau_phi=0.3;
+        %params.phi=0.5;
+        %params.tau_phi=0.3;
         covar_idx=find(ismember({params.dm.dspec.covar.label},{'left_clicks','right_clicks'}));        
         X_update_fun = @(phi,tau_phi)buildGLM.updateSparseDesignMatrix_covar(params.dm.dspec, trials, struct('phi',phi,'tau_phi',tau_phi,'within_stream',params.within_stream), covar_idx, X);
         time_at_start=tic;              
@@ -277,7 +286,7 @@ function [stats,Yhat] = fit(X,Y,params,trials)
         options=optimoptions('fmincon','UseParallel',false,'OutputFcn',osf,'Algorithm','interior-point','FunctionTolerance',eps,'StepTolerance',1e-8);  % stop if you are taking tiny steps but not if the change in LL is small -- sometimes the gradient is really small far from the optimum and you should keep going until you get near the basin              
         optim_fun = @(x)NLL_fun(X_update_fun,Y,itransform(x(1)),itransform(x(2)),rmfield(params,'dm'));                        
         [adaptation_stats.beta,adaptation_stats.NLL,adaptation_stats.exitflag,adaptation_stats.output,adaptation_stats.lambda,...
-            adaptation_stats.grad,adaptation_stats.hessian] = fmincon(optim_fun,transform([params.phi;params.tau_phi]),[],[],[],[],transform([1e-10 2e-3]),transform([1e1 1e6]),[],options);                        
+            adaptation_stats.grad,adaptation_stats.hessian] = fmincon(optim_fun,transform([params.phi;params.tau_phi]),[],[],[],[],transform([1e-10 2e-3]),transform([1e1 1e2]),[],options);                        
         [params.phi,adaptation_stats.phi]=deal(itransform(adaptation_stats.beta(1)));
         [params.tau_phi,adaptation_stats.tau_phi] = deal(itransform(adaptation_stats.beta(2)));            
         adaptation_stats.se=sqrt(diag(inv(adaptation_stats.hessian)));
