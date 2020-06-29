@@ -216,6 +216,8 @@ function [stats,Yhat,Yhat_cv] = mainLoop(X,Y,params)
     if ~isempty(params.kfold) && params.kfold>1
         if stats.badly_scaled
             fprintf('Skipping cross-validation since fit to all data was badly scaled.\n');
+            stats.cvp=[];
+            stats.cv_stats=[];
         else
             stats.cvp = cvpartition(nTrials,'KFold',params.kfold);
             combineWeightFun = @(raw_weights,covariances)buildGLM.combineWeights(params.dm,params.dm.dspec, raw_weights , covariances,false);
