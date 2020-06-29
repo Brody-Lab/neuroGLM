@@ -326,7 +326,7 @@ while iter <= iterLim
     end
 
     % Check stopping conditions
-    if (~any(abs(b-b_old) > convcrit * max(seps, abs(b_old))))
+    if (~any(abs(b-b_old) > convcrit * max(seps, abs(b_old)))) || iter>iterLim
         [b,R] = wfit(z - offset, x, sqrtw);        %compute R
         break 
     end

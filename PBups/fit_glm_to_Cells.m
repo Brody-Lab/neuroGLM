@@ -247,8 +247,12 @@ function [stats,Yhat,Yhat_cv] = mainLoop(X,Y,params)
             Yhat_cv=zeros(size(Yhat));
             for i=1:params.kfold
                 [cv_stats(i).ws,cv_stats(i).wvars] =combineWeightFun(cv_stats(i).beta,cv_stats(i).covb);
-                covar_idx=find(ismember({params.dm.dspec.covar.label},{'left_clicks','right_clicks'}));                         
-                X_test=buildGLM.updateSparseDesignMatrix_covar(params.dm.dspec, find(stats.cvp.test(i)), cv_stats(i).adaptation_stats, covar_idx, X(test_idx{i},:));
+                covar_idx=find(ismember({params.dm.dspec.covar.label},{'left_clicks','right_clicks'}));      
+                if params.fit_adaptation
+                    X_test=buildGLM.updateSparseDesignMatrix_covar(params.dm.dspec, find(stats.cvp.test(i)), cv_stats(i).adaptation_stats, covar_idx, X(test_idx{i},:));
+                else
+                    X_test = X(test_idx{i},:);
+                end
                 Yhat_cv(test_idx{i})=params.link.Inverse(cv_stats(i).beta(1)+X_test*cv_stats(i).beta(2:end));                
             end
             cv_stats = rmfield(cv_stats,'wts');            
@@ -301,9 +305,7 @@ function [stats,Yhat] = fit(X,Y,params,trials)
     end
     [~,dev,stats] = glmfit(X,Y,params.distribution,'options',options);            
     stats.dev=dev;
-    if nargout>1
-        Yhat=gather(params.link.Inverse(stats.beta(1)+X*stats.beta(2:end)));
-    end
+    Yhat=gather(params.link.Inverse(stats.beta(1)+X*stats.beta(2:end)));
     if params.fit_adaptation
         stats.adaptation_stats=adaptation_stats;
     else
