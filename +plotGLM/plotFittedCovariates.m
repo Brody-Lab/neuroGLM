@@ -8,7 +8,7 @@ function plotFittedCovariates(stats,varargin)
     if ismember('link',p.UsingDefaults) && isfield(stats.params,'distribution') && strcmp(stats.params.distribution,'poisson')
         params.ilink = @(x)exp(x);
     end
-    covars = {stats.dspec.covar.label};
+    covars = fieldnames(stats.ws);
     matches={'left','right'};
     groups = group_covars(covars,matches);
     color.left='b';
