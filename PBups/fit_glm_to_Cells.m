@@ -80,15 +80,21 @@ function stats = fit_glm_to_Cells(Cells,varargin)
         end
         if ~isdir(params.save_path)
             mkdir(params.save_path);
-            if params.save_by_cell
-                mkdir(fullfile(params.save_path,'spikes'));
-                mkdir(fullfile(params.save_path,'stats'));            
-            end
         end
         if params.save_by_cell
-            mat_file_name = fullfile(params.save_path,'spikes','_glmfits_save_test.mat');
+            spikes_dir=fullfile(params.save_path,'spikes');
+            stats_dir=fullfile(params.save_path,'stats');
+            if ~isdir(spikes_dir)
+                mkdir(spikes_dir);
+            end
+            if ~isdir(stats_dir)
+                mkdir(stats_dir);            
+            end
+        end        
+        if params.save_by_cell
+            mat_file_name = fullfile(params.save_path,'spikes','glmfits_save_test.mat');
         else
-            mat_file_name = fullfile(params.save_path,'_glmfits_save_test.mat');            
+            mat_file_name = fullfile(params.save_path,'glmfits_save_test.mat');            
         end
         test=[];
         save(mat_file_name,'test','-v7');
