@@ -25,6 +25,7 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     p.addParameter('fit_adaptation',true,@(x)validateattributes(x,{'logical'},{'scalar'})); % whether or not to fit phi and tau_phi for each neuron using gradient descent
     p.addParameter('choice_time_back_s',0.75,@(x)validateattributes(x,{'numeric'},{'scalar','nonnegative'})); % choice kernels extend backwards acausally in time before stimulus end by this many seconds
     p.addParameter('include_mono_clicks',true,@(x)validateattributes(x,{'logical'},{'scalar'}));    
+    p.addParameter('save_by_cell',true,@(x)validateattributes(x,{'logical'},{'scalar'}));    
     p.parse(varargin{:});
     params=p.Results;
     validatestring(params.distribution,{'poisson','normal'},mfilename,'distribution');
@@ -74,14 +75,21 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     if params.save
         fprintf('Testing save now before spending a long time fitting... \n');
         if isempty(params.save_path)
-            [a,b,~] = fileparts(Cells.mat_file_name);
             save_subdir = [datestr(now,'YYYY_mm_dd_HH_MM_SS'),'_glmfits'];
-            params.save_path = fullfile(a,save_subdir);
+            params.save_path = fullfile(fileparts(Cells.mat_file_name),save_subdir);
         end
         if ~isdir(params.save_path)
             mkdir(params.save_path);
+            if params.save_by_cell
+                mkdir(fullfile(params.save_path,'spikes'));
+                mkdir(fullfile(params.save_path,'stats'));            
+            end
         end
-        mat_file_name = fullfile(params.save_path,'_glmfits_save_test.mat');
+        if params.save_by_cell
+            mat_file_name = fullfile(params.save_path,'spikes','_glmfits_save_test.mat');
+        else
+            mat_file_name = fullfile(params.save_path,'_glmfits_save_test.mat');            
+        end
         test=[];
         save(mat_file_name,'test','-v7');
         delete(mat_file_name);   
@@ -182,10 +190,22 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     params.responsiveFrac=responsiveFrac;
     params.totalSpikes=totalSpikes;
     if params.save
-        save(fullfile(params.save_path,'glmfit_stats.mat'),'params','stats','-v7');
-        fprintf('Saved %s successfully.\n',fullfile(params.save_path,'glmfit_stats.mat'));
-        save(fullfile(params.save_path,'glmfit_spikes.mat'),'params','spikes','-v7');
-        fprintf('Saved %s successfully.\n',fullfile(params.save_path,'glmfit_spikes.mat'));        
+        cell_info=make_cell_info(Cells);
+        save(fullfile(params.save_path,'cell_info.mat'),'-struct','cell_info','-v7');                    
+        if params.save_by_cell
+            save(fullfile(params.save_path,'glmfit_params.mat'),'params','-v7');            
+            for i=1:length(stats)
+                these_stats=stats(i);
+                these_spikes=spikes(i);
+                save(fullfile(params.save_path,'stats',sprintf('glmfit_stats_cell%g.mat',stats(i).cellno)),'-struct','these_stats');
+                save(fullfile(params.save_path,'spikes',sprintf('glmfit_spikes_cell%g.mat',stats(i).cellno)),'-struct','these_spikes');                
+            end
+        else
+            save(fullfile(params.save_path,'glmfit_stats.mat'),'params','stats','-v7');
+            fprintf('Saved %s successfully.\n',fullfile(params.save_path,'glmfit_stats.mat'));
+            save(fullfile(params.save_path,'glmfit_spikes.mat'),'params','spikes','-v7');
+            fprintf('Saved %s successfully.\n',fullfile(params.save_path,'glmfit_spikes.mat'));        
+        end
     end
 end
 
@@ -218,6 +238,7 @@ function [stats,Yhat,Yhat_cv] = mainLoop(X,Y,params)
             fprintf('Skipping cross-validation since fit to all data was badly scaled.\n');
             stats.cvp=[];
             stats.cv_stats=[];
+            stats.cv_NLL=[];
         else
             stats.cvp = cvpartition(nTrials,'KFold',params.kfold);
             combineWeightFun = @(raw_weights,covariances)buildGLM.combineWeights(params.dm,params.dm.dspec, raw_weights , covariances,false);
@@ -255,9 +276,22 @@ function [stats,Yhat,Yhat_cv] = mainLoop(X,Y,params)
                 else
                     X_test = X(test_idx{i},:);
                 end
-                Yhat_cv(test_idx{i})=params.link.Inverse(cv_stats(i).beta(1)+X_test*cv_stats(i).beta(2:end));                
+                Yhat_cv(test_idx{i})=params.link.Inverse(cv_stats(i).beta(1)+X_test*cv_stats(i).beta(2:end));   
+                switch params.distribution
+                    case 'poisson'
+                        cv_stats(i).NLL_test = -sum(log(poisspdf(Y(test_idx{i}),Yhat_cv(test_idx{i}))));
+                    case 'normal'
+                        cv_stats(i).NLL_test = -sum(log(normpdf(Y(test_idx{i}),Yhat_cv(test_idx{i}),1)));
+                end
             end
-            cv_stats = rmfield(cv_stats,'wts');            
+            switch params.distribution
+                case 'poisson'
+                    stats.cv_NLL = -sum(log(poisspdf(Y,Yhat_cv)));
+                case 'normal'
+                    stats.cv_NLL = -sum(log(normpdf(Y,Yhat_cv,1)));
+            end             
+            cv_stats = rmfield(cv_stats,'wts');     
+            cv_stats=renamefield(cv_stats,'NLL','NLL_train');
             stats.cv_stats=cv_stats;
             fprintf('Took %s.\n',timestr(toc));            
         end
