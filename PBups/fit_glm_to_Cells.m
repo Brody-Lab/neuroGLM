@@ -204,7 +204,9 @@ function stats = fit_glm_to_Cells(Cells,varargin)
                 these_stats=stats(i);
                 these_spikes=spikes(i);
                 save(fullfile(params.save_path,'stats',sprintf('glmfit_stats_cell%g.mat',stats(i).cellno)),'-struct','these_stats');
-                save(fullfile(params.save_path,'spikes',sprintf('glmfit_spikes_cell%g.mat',stats(i).cellno)),'-struct','these_spikes');                
+                fprintf('Saved %s successfully.\n',fullfile(params.save_path,'stats',sprintf('glmfit_stats_cell%g.mat',stats(i).cellno)));                
+                save(fullfile(params.save_path,'spikes',sprintf('glmfit_spikes_cell%g.mat',stats(i).cellno)),'-struct','these_spikes');      
+                fprintf('Saved %s successfully.\n',fullfile(params.save_path,'spikes',sprintf('glmfit_spikes_cell%g.mat',stats(i).cellno)));                                
             end
         else
             save(fullfile(params.save_path,'glmfit_stats.mat'),'params','stats','-v7');
@@ -289,6 +291,7 @@ function [stats,Yhat,Yhat_cv] = mainLoop(X,Y,params)
                     case 'normal'
                         cv_stats(i).NLL_test = -sum(log(normpdf(Y(test_idx{i}),Yhat_cv(test_idx{i}),1)));
                 end
+                cv_stats(i).NLL_train=cv_stats(i).NLL;                
             end
             switch params.distribution
                 case 'poisson'
@@ -297,7 +300,7 @@ function [stats,Yhat,Yhat_cv] = mainLoop(X,Y,params)
                     stats.cv_NLL = -sum(log(normpdf(Y,Yhat_cv,1)));
             end             
             cv_stats = rmfield(cv_stats,'wts');     
-            cv_stats=renamefield(cv_stats,'NLL','NLL_train');
+            cv_stats=rmfield(cv_stats,'NLL');
             stats.cv_stats=cv_stats;
             fprintf('Took %s.\n',timestr(toc));            
         end
