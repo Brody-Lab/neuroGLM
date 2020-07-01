@@ -195,6 +195,10 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     params.responsive_enough=responsive_enough;
     params.responsiveFrac=responsiveFrac;
     params.totalSpikes=totalSpikes;
+    [params.git_branch,params.git_commit] = return_git_status(fileparts(which(mfilename)));
+    [~,params.hostname] = system('hostname');
+    params.hostname=deblank(params.hostname);
+    params.save_time=datestr(now,'YYYY_mm_DD_HH_MM_SS');
     if params.save
         cell_info=make_cell_info(Cells);
         save(fullfile(params.save_path,'cell_info.mat'),'-struct','cell_info','-v7');                    
