@@ -190,7 +190,9 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     end
     %% save
     params.rat = Cells.rat;
-    params.sess_date = Cells.sess_date;
+    if isfield(Cells,'sess_date')
+        params.sess_date = Cells.sess_date;
+    end
     params.sessid = Cells.sessid;
     params.responsive_enough=responsive_enough;
     params.responsiveFrac=responsiveFrac;
@@ -199,9 +201,7 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     [~,params.hostname] = system('hostname');
     params.hostname=deblank(params.hostname);
     params.save_time=datestr(now,'YYYY_mm_DD_HH_MM_SS');
-    if params.save
-        cell_info=make_cell_info(Cells);
-        save(fullfile(params.save_path,'cell_info.mat'),'-struct','cell_info','-v7');                    
+    if params.save               
         if params.save_by_cell
             save(fullfile(params.save_path,'glmfit_params.mat'),'params','-v7');            
             for i=1:length(stats)
