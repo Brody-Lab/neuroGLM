@@ -33,6 +33,14 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
     for f=1:length(fields_to_copy)
         if isfield(Cells,fields_to_copy{f})
             rawData.param.(fields_to_copy{f}) = Cells.(fields_to_copy{f});
+            if numel(rawData.param.(fields_to_copy{f}))>1
+                if isstring(rawData.param.(fields_to_copy{f})) || (ischar(rawData.param.(fields_to_copy{f})) && size(rawData.param.(fields_to_copy{f}),1)>1)
+                    rawData.param.(fields_to_copy{f}) = string(rawData.param.(fields_to_copy{f}));
+                    rawData.param.(fields_to_copy{f}) = char(rawData.param.(fields_to_copy{f})(1));
+                elseif isnumeric(rawData.param.(fields_to_copy{f}))
+                    rawData.param.(fields_to_copy{f}) = rawData.param.(fields_to_copy{f})(1);
+                end
+            end
         else
             warning('Could not copy field %s because it does not exist.',fields_to_copy{f});
         end

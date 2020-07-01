@@ -153,8 +153,8 @@ function stats = fit_glm_to_Cells(Cells,varargin)
         X{c} = dm.X;
     end
     if ~any(responsive_enough)
-        stats=struct();
-        fprintf(' took %s.\n%g of %g cells are sufficiently responsive. Returning.\n',timestr(toc),sum(responsive_enough),ncells);        
+        stats=struct([]);
+        fprintf(' took %s.\n%g of %g cells are sufficiently responsive. Skipping fitting.\n',timestr(toc),sum(responsive_enough),ncells);        
     else
         fprintf(' took %s.\n%g of %g cells are sufficiently responsive. Fitting now:\n',timestr(toc),sum(responsive_enough),ncells);
     end
@@ -203,7 +203,8 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     params.save_time=datestr(now,'YYYY_mm_DD_HH_MM_SS');
     if params.save               
         if params.save_by_cell
-            save(fullfile(params.save_path,'glmfit_params.mat'),'params','-v7');            
+            save(fullfile(params.save_path,'glmfit_params.mat'),'params','-v7');  
+            fprintf('Saved %s successfully.\n',fullfile(params.save_path,'glmfit_params.mat'));                            
             for i=1:length(stats)
                 these_stats=stats(i);
                 these_spikes=spikes(i);
