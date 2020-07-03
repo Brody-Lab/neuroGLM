@@ -1,4 +1,4 @@
-function stats = fit_glm_to_Cells(Cells,varargin)
+function [stats,params] = fit_glm_to_Cells(Cells,varargin)
     % fits a GLM for spiking data recorded during PBups and contained within
     % an Cells data structure.
     % This function is essentially a wrapper for the neuroGLM package forked from the
@@ -26,6 +26,8 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     p.addParameter('choice_time_back_s',0.75,@(x)validateattributes(x,{'numeric'},{'scalar','nonnegative'})); % choice kernels extend backwards acausally in time before stimulus end by this many seconds
     p.addParameter('include_mono_clicks',true,@(x)validateattributes(x,{'logical'},{'scalar'}));    
     p.addParameter('save_by_cell',true,@(x)validateattributes(x,{'logical'},{'scalar'}));    
+    p.addParameter('fit',true,@(x)validateattributes(x,{'logical'},{'scalar'})); % setting to false is useful when you just want the params structure
+    p.addParameter('save_params',true,@(x)validateattributes(x,{'logical'},{'scalar'})); % setting to false useful when you are simultaneously running jobs across cells. you don't want params to overwrite each other.
     p.parse(varargin{:});
     params=p.Results;
     validatestring(params.distribution,{'poisson','normal'},mfilename,'distribution');
@@ -151,8 +153,14 @@ function stats = fit_glm_to_Cells(Cells,varargin)
         spikes(c).Y = full(buildGLM.getBinnedSpikeTrain(expt, ['sptrain',num2str(params.cellno(c))], dm.trialIndices)); 
         spikes(c).cellno=params.cellno(c);
         X{c} = dm.X;
+        if ~params.fit && c==length(params.cellno)
+            break
+        end
     end
-    if ~any(responsive_enough)
+    if ~params.fit
+        stats=struct([]);
+        fprintf(' took %s.\nSkipping fitting.\n',timestr(toc));        
+    elseif ~any(responsive_enough)
         stats=struct([]);
         fprintf(' took %s.\n%g of %g cells are sufficiently responsive. Skipping fitting.\n',timestr(toc),sum(responsive_enough),ncells);        
     else
@@ -168,25 +176,27 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     params.dm=dm;        
     params.dm.dspec.expt.trial = rmfield(dm.dspec.expt.trial,trial_fields(is_spk_field)); 
     %% loop over cells
-    if params.n_workers>1 && params.parallelize_by_cells
-        if params.create_pool
-            delete(gcp('nocreate'));
-            parpool(params.n_workers);
-        end
-        parfor c=1:sum(responsive_enough)
-            cellno(c)=params.cellno(responsive_cells(c));                 
-            fprintf('Cell id %g (%g of %g to fit):\n',cellno(c),c,sum(responsive_enough));           
-            [stats(c),spikes(c).Yhat,spikes(c).Yhat_cv] = mainLoop(X{c},spikes(c).Y,params);
-        end    
-    else
+    if params.fit
+        if params.n_workers>1 && params.parallelize_by_cells
+            if params.create_pool
+                delete(gcp('nocreate'));
+                parpool(params.n_workers);
+            end
+            parfor c=1:sum(responsive_enough)
+                cellno(c)=params.cellno(responsive_cells(c));                 
+                fprintf('Cell id %g (%g of %g to fit):\n',cellno(c),c,sum(responsive_enough));           
+                [stats(c),spikes(c).Yhat,spikes(c).Yhat_cv] = mainLoop(X{c},spikes(c).Y,params);
+            end    
+        else
+            for c=sum(responsive_enough):-1:1
+                cellno(c)=params.cellno(responsive_cells(c));                             
+                fprintf('Cell id %g (%g of %g to fit):\n',cellno(c),c,sum(responsive_enough));           
+                [stats(c),spikes(c).Yhat,spikes(c).Yhat_cv] = mainLoop(X{c},spikes(c).Y,params);
+            end
+        end  
         for c=sum(responsive_enough):-1:1
-            cellno(c)=params.cellno(responsive_cells(c));                             
-            fprintf('Cell id %g (%g of %g to fit):\n',cellno(c),c,sum(responsive_enough));           
-            [stats(c),spikes(c).Yhat,spikes(c).Yhat_cv] = mainLoop(X{c},spikes(c).Y,params);
+            stats(c).cellno= cellno(c); % add in separate loop to avoid assignment between dissimilar structures           
         end
-    end  
-    for c=sum(responsive_enough):-1:1
-        stats(c).cellno= cellno(c); % add in separate loop to avoid assignment between dissimilar structures           
     end
     %% save
     params.rat = Cells.rat;
@@ -203,8 +213,10 @@ function stats = fit_glm_to_Cells(Cells,varargin)
     params.save_time=datestr(now,'YYYY_mm_DD_HH_MM_SS');
     if params.save               
         if params.save_by_cell
-            save(fullfile(params.save_path,'glmfit_params.mat'),'params','-v7');  
-            fprintf('Saved %s successfully.\n',fullfile(params.save_path,'glmfit_params.mat'));                            
+            if params.save_params
+                save(fullfile(params.save_path,'glmfit_params.mat'),'params','-v7');  
+                fprintf('Saved %s successfully.\n',fullfile(params.save_path,'glmfit_params.mat'));                            
+            end
             for i=1:length(stats)
                 these_stats=stats(i);
                 these_spikes=spikes(i);
@@ -332,7 +344,7 @@ function [stats,Yhat] = fit(X,Y,params,trials)
         end   
         % init
         %params.phi=0.5;
-        %params.tau_phi=0.3;
+        %params.tau_phi=0.3; % good starting points but let user decide
         covar_idx=find(ismember({params.dm.dspec.covar.label},{'left_clicks','right_clicks'}));        
         X_update_fun = @(phi,tau_phi)buildGLM.updateSparseDesignMatrix_covar(params.dm.dspec, trials, struct('phi',phi,'tau_phi',tau_phi,'within_stream',params.within_stream), covar_idx, X);
         time_at_start=tic;              
@@ -358,6 +370,7 @@ function [stats,Yhat] = fit(X,Y,params,trials)
     Yhat=gather(params.link.Inverse(stats.beta(1)+X*stats.beta(2:end)));
     if params.fit_adaptation
         stats.adaptation_stats=adaptation_stats;
+        stats.NLL = adaptation_stats.NLL;
     else
         switch params.distribution
             case 'poisson'
