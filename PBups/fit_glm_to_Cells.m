@@ -120,42 +120,39 @@ function [stats,params] = fit_glm_to_Cells(Cells,varargin)
     dm = buildGLM.compileSparseDesignMatrix(dspec_base, 1:nTrials, params);
     X_base = dm.X;
     ncells=rawData.param.ncells;
-    %% loop over cells
-    % non-parallel loop to do some preparatory computation that will
-    % reduce I/O to the workers for the main fitting stage
     responsive_enough=true(1,ncells);  
     n_params=sum([dspec_base.covar.edim])+1+6; % 6 is for spike history filter but this may be an overestimate. roughly good enough for these purposes.
-    %% first (non-parallel) loop across cells
+    %% determine if cells are responsive enough to fit    
+    for c=length(params.cellno):-1:1
+        responsiveFrac(c) = sum(arrayfun(@(x)numel(x.(['sptrain',num2str(params.cellno(c))])),expt.trial)>0)./nTrials;         
+        totalSpikes(c) = length(cat(1,expt.trial.(['sptrain',num2str(params.cellno(c))])));
+        if params.minResponsiveFrac>0
+            if responsiveFrac(c) < params.minResponsiveFrac || totalSpikes(c)<n_params*params.minSpkParamRatio        
+                responsive_enough(c)=false;
+            end
+        end     
+    end    
+    %% build design matrices for each cell to fit
     % non-parallel loop across cells just to compute the design matrices
     % (to avoid passing a structure with all the spike times to the
-    % workers)
+    % workers).
     % this is a bit of a hack -- you could just extract the spike times
     % for each cell and pass it as a cell array. but this would require
     % significant rewriting of code.
     X = cell(1,length(params.cellno));
     tic;fprintf('\nBuilding design matrices for responsive cells ...');
-    spikes=struct();    
-    for c=length(params.cellno):-1:1
-        responsiveFrac(c) = sum(arrayfun(@(x)numel(x.(['sptrain',num2str(params.cellno(c))])),expt.trial)>0)./nTrials;         
-        totalSpikes(c) = length(cat(1,expt.trial.(['sptrain',num2str(params.cellno(c))])));
-        %% determine if cell is responsive enough to fit
-        if params.minResponsiveFrac>0
-            if responsiveFrac(c) < params.minResponsiveFrac || totalSpikes(c)<n_params*params.minSpkParamRatio        
-                responsive_enough(c)=false;
-                continue
-            end
-        end        
+    spikes=struct(); 
+    for c=length(params.cellno):-1:1      
         dspec = build_dspec_for_pbups(dspec_base,'spike_history',params.cellno(c)); 
-        %% build design matrices        
         dm = buildGLM.compileSparseDesignMatrix(dspec, 1:nTrials, params , numel(dspec.covar));   % only remake the columns associated with the spike history term since the rest is common across cells
         dm.X(:,1:(dspec.edim-dspec.covar(end).edim))=X_base;
         dm = buildGLM.removeConstantCols(dm);       
         spikes(c).Y = full(buildGLM.getBinnedSpikeTrain(expt, ['sptrain',num2str(params.cellno(c))], dm.trialIndices)); 
         spikes(c).cellno=params.cellno(c);
         X{c} = dm.X;
-        if ~params.fit && c==length(params.cellno)
-            break
-        end
+        if ~params.fit
+           break % let it compute dm for one cell so it can be stored in the params
+        end          
     end
     if ~params.fit
         stats=struct([]);
