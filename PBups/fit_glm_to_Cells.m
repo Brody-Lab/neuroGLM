@@ -11,7 +11,7 @@ function [stats,params] = fit_glm_to_Cells(Cells,varargin)
     p.addParameter('create_pool',false,@(x)validateattributes(x,{'logical'},{'scalar'}));    
     p.addParameter('parallelize_by_cells',true,@(x)validateattributes(x,{'logical'},{'scalar'}));        
     p.addParameter('n_workers',1,@(x)validateattributes(x,{'numeric'},{'scalar','integer','>',0}));    % parallelization operates over cells unless cross-validation is used (i.e. kfold>1) in which case it operates over cross-validation folds
-    p.addParameter('maxIter',25,@(x)validateattributes(x,{'numeric'},{'positive','scalar'}));
+    p.addParameter('maxIter',100,@(x)validateattributes(x,{'numeric'},{'positive','scalar'}));
     p.addParameter('bin_size_s',0.001,@(x)validateattributes(x,{'numeric'},{'positive','scalar'}));  % resolution of the model. predictions have this bin size.  
     p.addParameter('minResponsiveFrac',0.5,@(x)validateattributes(x,{'numeric'},{'scalar','positive','<',1}));
     p.addParameter('minSpkParamRatio',10,@(x)validateattributes(x,{'numeric'},{'scalar','positive'}));
@@ -352,7 +352,7 @@ function [stats,Yhat] = fit(X,Y,params,trials)
         options=optimoptions('fmincon','UseParallel',false,'OutputFcn',osf,'Algorithm','interior-point','FunctionTolerance',eps,'StepTolerance',1e-8);  % stop if you are taking tiny steps but not if the change in LL is small -- sometimes the gradient is really small far from the optimum and you should keep going until you get near the basin              
         optim_fun = @(x)NLL_fun(X_update_fun,Y,itransform(x(1)),itransform(x(2)),rmfield(params,'dm'));                        
         [adaptation_stats.beta,adaptation_stats.NLL,adaptation_stats.exitflag,adaptation_stats.output,adaptation_stats.lambda,...
-            adaptation_stats.grad,adaptation_stats.hessian] = fmincon(optim_fun,transform([params.phi;params.tau_phi]),[],[],[],[],transform([1e-10 2e-3]),transform([1e1 1e2]),[],options);                        
+            adaptation_stats.grad,adaptation_stats.hessian] = fmincon(optim_fun,transform([params.phi;params.tau_phi]),[],[],[],[],transform([1e-10 2e-3]),transform([1e1 5e1]),[],options);                        
         [params.phi,adaptation_stats.phi]=deal(itransform(adaptation_stats.beta(1)));
         [params.tau_phi,adaptation_stats.tau_phi] = deal(itransform(adaptation_stats.beta(2)));            
         adaptation_stats.se=sqrt(diag(inv(adaptation_stats.hessian)));
