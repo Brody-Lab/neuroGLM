@@ -12,6 +12,7 @@ function [stats,params] = fit_glm_to_Cells(Cells,varargin)
     p.addParameter('parallelize_by_cells',true,@(x)validateattributes(x,{'logical'},{'scalar'}));        
     p.addParameter('n_workers',1,@(x)validateattributes(x,{'numeric'},{'scalar','integer','>',0}));    % parallelization operates over cells unless cross-validation is used (i.e. kfold>1) in which case it operates over cross-validation folds
     p.addParameter('maxIter',100,@(x)validateattributes(x,{'numeric'},{'positive','scalar'}));
+    p.addParameter('lambda',0.05,@(x)validateattributes(x,{'numeric'},{'scalar','nonnegative'})); % amplitude of ridge penalty applied in the GLM fitting
     p.addParameter('bin_size_s',0.001,@(x)validateattributes(x,{'numeric'},{'positive','scalar'}));  % resolution of the model. predictions have this bin size.  
     p.addParameter('minResponsiveFrac',0.5,@(x)validateattributes(x,{'numeric'},{'scalar','positive','<',1}));
     p.addParameter('minSpkParamRatio',10,@(x)validateattributes(x,{'numeric'},{'scalar','positive'}));
@@ -327,6 +328,9 @@ function [stats,Yhat,Yhat_cv] = mainLoop(X,Y,params)
 end
 
 function [stats,Yhat] = fit(X,Y,params,trials)
+    if params.useGPU
+        Y=gpuArray(Y);
+    end  
     if params.fit_adaptation
         [transform,itransform] = deal(@(x)x);        
         %transform=@(x)log(1+x); % identity near zero, but logarithmic as x->Inf
@@ -335,10 +339,7 @@ function [stats,Yhat] = fit(X,Y,params,trials)
         % I tried tanh but this needs to be scaled (by ~2e4) to allow large tau_phi
         % and this leads to slow convergence when tau_phi is small.
         params.transform=transform;
-        params.itransform=itransform;
-        if params.useGPU
-            Y=gpuArray(Y);
-        end   
+        params.itransform=itransform; 
         % init
         %params.phi=0.5;
         %params.tau_phi=0.3; % good starting points but let user decide
@@ -362,7 +363,7 @@ function [stats,Yhat] = fit(X,Y,params,trials)
     if params.useGPU
         X=gpuArray(X);
     end
-    [~,dev,stats] = glmfit(X,Y,params.distribution,'options',options);            
+    [~,dev,stats] = glmfit(X,Y,params.distribution,'options',options,'lambda',params.lambda);            
     stats.dev=dev;
     Yhat=gather(params.link.Inverse(stats.beta(1)+X*stats.beta(2:end)));
     if params.fit_adaptation
@@ -390,7 +391,7 @@ function NLL = NLL_fun(X_update_fun,Y,phi,tau_phi,params)
     if params.useGPU
         X=gpuArray(X);
     end        
-    beta = glmfit(X,Y,params.distribution,'options',options);       
+    beta = glmfit(X,Y,params.distribution,'options',options,'lambda',params.lambda);       
     pred = params.link.Inverse(beta(1)+X*beta(2:end));    
     switch params.distribution
         case 'poisson'

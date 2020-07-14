@@ -144,9 +144,9 @@ end
 
 % Process optional name/value pairs.
 if newSyntax
-    paramNames = {     'link' 'estdisp' 'offset' 'weights' 'constant' 'rankwarn' 'options' 'b0'};
-    paramDflts = {'canonical'     'off'      []        []        'on'       true        [] []};
-    [link,estdisp,offset,pwts,const,rankwarn,options,b0] = ...
+    paramNames = {     'link' 'estdisp' 'offset' 'weights' 'constant' 'rankwarn' 'options' 'b0' ,'lambda'};
+    paramDflts = {'canonical'     'off'      []        []        'on'       true        [] []        0.05  };
+    [link,estdisp,offset,pwts,const,rankwarn,options,b0,lambda] = ...
                            internal.stats.parseArgs(paramNames, paramDflts, varargin{:});
 
 else % the old syntax glmfit(x,y,distr,link,estdisp,offset,pwts,const)
@@ -212,6 +212,7 @@ y = cast(y,dataClass);
  assume_full_rank=true;
 if assume_full_rank
     perm = 1:ncolx;
+    p=ncolx;
 else
      xx = gather(x); 
     if isempty(pwts)
@@ -234,11 +235,8 @@ else
     else
         perm = 1:ncolx;
     end
+    [n,p]=size(x);
 end
-
-% Number of observations after removing missing data, number of coeffs after
-% removing dependent cols and (possibly) adding a constant term.
-[n,p] = size(x);
 
 if isempty(pwts)
     pwts = 1;
@@ -273,6 +271,22 @@ iter = 0;
 warned = false;
 seps = sqrt(eps);
 b = zeros(p,1,dataClass);
+bs=[];
+if lambda==0
+    wfit_fun  = @(z,sqrtw)wfit(z-offset, x, sqrtw); 
+else
+    % apply a ridge penalty by adding pseudo-observations with value of 0.
+    % TO DO: make ridge work with gpu inputs
+    L=lambda*eye(p,'like',x);
+    pseudo=zeros(p,1,'like',y);
+    if isequal(const,'on')
+        L(1)=0;
+    end 
+    ridge.xw_alloc = [x;L];
+    ridge.yw_alloc = [y;pseudo];
+    ridge.data_sz = n;
+    wfit_fun  = @(z,sqrtw)wfit(z-offset, x, sqrtw, ridge, 'normal');     
+end
 
 while iter <= iterLim
     iter = iter+1;
@@ -304,7 +318,8 @@ while iter <= iterLim
 
     % Compute coefficient estimates for this iteration - the IRLS step
     b_old = b;
-    b = wfit(z - offset, x, sqrtw);
+    b = wfit_fun(z,sqrtw);
+    bs=[bs b];
 
     % Form current linear predictor, including offset
     eta = offset + x * b;
@@ -327,14 +342,18 @@ while iter <= iterLim
 
     % Check stopping conditions
     if (~any(abs(b-b_old) > convcrit * max(seps, abs(b_old)))) || iter>iterLim
-        [b,R] = wfit(z - offset, x, sqrtw);        %compute R
+        [b,R] = wfit_fun(z,sqrtw);        %compute R
         break 
     end
 end
 if iter > iterLim
+    stats.iterLim=true;
     warning(message('stats:glmfit:IterationLimit'));
+else
+    stats.iterLim=false;
 end
 bb = zeros(ncolx,1); bb(perm) = gather(b);
+bs(perm,:)=gather(bs);
 
 if iter>iterLim && isequal(distr,'binomial')
     diagnoseSeparation(eta,y,N);
@@ -404,13 +423,15 @@ if nargout > 2
         stats.s = stats.sfit;
         stats.estdisp = true;
     end
-
+    stats.cond=cond(R);
+    stats.bs=bs;
+    stats.iter=iter;   
     % Find coefficient standard errors and correlations
     if ~isnan(stats.s) % dfe > 0 or estdisp == 'off'
         RI = R\eye(p);
         C = RI * RI';
         if estdisp, C = C * stats.s^2; end
-        se = sqrt(diag(C)); se = se(:);   % insure vector even if empty
+        se = sqrt(diag(C)); se = se(:);   % insure vector even if empty     
         stats.covb = zeros(ncolx,ncolx,dataClass);
         stats.covb(perm,perm) = gather(C);
         stats.covb = nearestSPD(stats.covb); % fixes floating point errors
@@ -442,21 +463,34 @@ if nargout > 2
 end
 
 
-function [b,R] = wfit(y,x,sw)
+function [b,R] = wfit(y,x,sw,ridge,mode)
 % AGB: the linear algebra in "wfit" is the computational workhorse of the
 % entire glm fitting algorithm. It is highly optimized for this problem. Faster execution if xw and yw are a gpuArray
-
-% Perform a weighted least squares fit
-[~,p] = size(x);
-yw = y .* sw;
-xw = x .* sw(:,ones(1,p));
-clear x;
+if nargin<5
+    mode='qr'; % most stable
+end
+if nargin<4
+    % Perform a weighted least squares fit
+    yw = y .* sw;
+    xw = x .* sw;
+else
+    % Perform a weighted least squares fit
+    xw=ridge.xw_alloc;
+    yw=ridge.yw_alloc;
+    yw(1:ridge.data_sz) = y .* sw;
+    xw(1:ridge.data_sz,:) = x .* sw;
+end
 % No pivoting, no basic solution.  We've removed dependent cols from x, and
 % checked the weights, so xw should be full rank.
 if nargout>1
     [~,R] = qr(gather(xw),0); % you only need R output for final iteration because it's used for computing parameter estimate uncertainty.
 end
-b = xw \ yw; 
+switch mode
+    case 'qr'
+        b = xw \ yw; 
+    case 'normal'
+        b = (xw'*xw)\(xw'*yw); % normal equation is much faster than QR but less numerically stable. Let's just ensure the coefficient matrix is well conditioned and then take advantage of the speed.
+end
 % single precision providse a roughly 40% speed improvement. Accuracy may become a problem though. Would need to be tested.
 if any(isnan(b))
    error('Error in IRLS: weights returned NaN.'); % in some rare cases, this happens when on GPU, but not with same data on CPU. No idea why.
