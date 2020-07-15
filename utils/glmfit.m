@@ -426,6 +426,8 @@ if nargout > 2
     stats.cond=cond(R);
     stats.bs=bs;
     stats.iter=iter;   
+    wts = 1./sqrtirls;    
+    stats.badly_scaled = any(wts~=0 & wts<(max(wts)*eps('double')^(2/3))) ;
     % Find coefficient standard errors and correlations
     if ~isnan(stats.s) % dfe > 0 or estdisp == 'off'
         RI = R\eye(p);
@@ -457,9 +459,7 @@ if nargout > 2
         stats.residp = insertnan(wasnan, (y - mu) ./ (sqrtvarFun(mu) + (y==mu)));
         stats.residd = insertnan(wasnan, sign(y - mu) .* sqrt(max(0,di)));
         stats.resida = insertnan(wasnan, anscresid);
-    end
-    
-    stats.wts = 1./sqrtirls.^2;
+    end 
 end
 
 
