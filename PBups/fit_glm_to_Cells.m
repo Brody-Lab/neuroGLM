@@ -247,14 +247,6 @@ function [stats,Yhat,Yhat_cv] = mainLoop(X,Y,params)
     % reconstruct fitted kernels by weighted combination of basis functions
     params.dm.biasCol=1;
     [stats.ws,stats.wvars] = buildGLM.combineWeights(params.dm, params.dm.dspec, stats.beta,stats.covb,true );
-    % determine if least-squared weights are badly scaled. If so, not much point
-    % doing cross-validation.
-    if any(sqrt(stats.wts)~=0 & sqrt(stats.wts)<(max(sqrt(stats.wts))*eps('double')^(2/3)))
-        stats.badly_scaled=true;
-    else
-        stats.badly_scaled=false;
-    end
-    stats=rmfield(stats,'wts');
     % Fit cross-validated model (if requested and if uncross-validated fit was not badly scaled)
     if ~isempty(params.kfold) && params.kfold>1
         if stats.badly_scaled
@@ -279,7 +271,7 @@ function [stats,Yhat,Yhat_cv] = mainLoop(X,Y,params)
                 end
                 for i=params.kfold:-1:1
                     Xs{i}=X(train_idx{i},:);
-                    idx{i} = find(stats.cvp.training(i));
+                    idx{i} = stats.cvp.training(i);
                     Ys{i}=Y(train_idx{i});
                 end
                 parfor i=1:params.kfold 
@@ -287,7 +279,7 @@ function [stats,Yhat,Yhat_cv] = mainLoop(X,Y,params)
                 end    
             else
                 for i=params.kfold:-1:1
-                    cv_stats(i) = fit(X(train_idx{i},:),Y(train_idx{i}), params, find(stats.cvp.training(i)));  
+                    cv_stats(i) = fit(X(train_idx{i},:),Y(train_idx{i}), params, stats.cvp.training(i));  
                 end                  
             end
             Yhat_cv=zeros(size(Yhat));
@@ -331,39 +323,53 @@ function [stats,Yhat] = fit(X,Y,params,trials)
     if params.useGPU
         Y=gpuArray(Y);
     end  
+    if ~all(trials)
+        cv=true;
+        getSpkIdxFun = @(trial_idx)buildGLM.getSpikeIndicesforTrial(params.dm.dspec.expt,trial_idx);                
+        train_idx = find(getSpkIdxFun(trials));
+        test_idx = find(getSpkIdxFun(~trials));
+        Y_test = Y(test_idx);
+        X = X(train_idx,:);
+        Y = Y(train_idx);
+    else
+        cv=false;
+    end
+    glm_options = statset('MaxIter',params.maxIter);       
     if params.fit_adaptation
-        [transform,itransform] = deal(@(x)x);        
+        [params.transform,params.itransform] = deal(@(x)x);        
         %transform=@(x)log(1+x); % identity near zero, but logarithmic as x->Inf
         %itransform=@(x)max(0,exp(x)-1);
         % makes fits converge faster when tau_phi is large
         % I tried tanh but this needs to be scaled (by ~2e4) to allow large tau_phi
         % and this leads to slow convergence when tau_phi is small.
-        params.transform=transform;
-        params.itransform=itransform; 
         % init
         %params.phi=0.5;
         %params.tau_phi=0.3; % good starting points but let user decide
         covar_idx=find(ismember({params.dm.dspec.covar.label},{'left_clicks','right_clicks'}));        
         X_update_fun = @(phi,tau_phi)buildGLM.updateSparseDesignMatrix_covar(params.dm.dspec, trials, struct('phi',phi,'tau_phi',tau_phi,'within_stream',params.within_stream), covar_idx, X);
-        time_at_start=tic;              
-        osf = @(x,optimValues,state)optim_status_fun(x,optimValues,state,time_at_start,itransform);
-        options=optimoptions('fmincon','UseParallel',false,'OutputFcn',osf,'Algorithm','interior-point','FunctionTolerance',eps,'StepTolerance',1e-8);  % stop if you are taking tiny steps but not if the change in LL is small -- sometimes the gradient is really small far from the optimum and you should keep going until you get near the basin              
-        optim_fun = @(x)NLL_fun(X_update_fun,Y,itransform(x(1)),itransform(x(2)),rmfield(params,'dm'));                        
+        time_at_start=tic;      
+        if cv
+            X_test_update_fun = @(phi,tau_phi)buildGLM.updateSparseDesignMatrix_covar(params.dm.dspec, ~trials, struct('phi',phi,'tau_phi',tau_phi,'within_stream',params.within_stream), covar_idx, X);                    
+        else      
+            X_test_update_fun=[];
+            Y_test=[];
+        end
+        options=optimoptions('fmincon','UseParallel',false,'OutputFcn',@optim_status_fun,'Algorithm','interior-point','FunctionTolerance',eps,'StepTolerance',1e-8);  % stop if you are taking tiny steps but not if the change in LL is small -- sometimes the gradient is really small far from the optimum and you should keep going until you get near the basin              
+        optim_fun = @(x)NLL_fun(params.itransform(x(1)),params.itransform(x(2)));                        
         [adaptation_stats.beta,adaptation_stats.NLL,adaptation_stats.exitflag,adaptation_stats.output,adaptation_stats.lambda,...
-            adaptation_stats.grad,adaptation_stats.hessian] = fmincon(optim_fun,transform([params.phi;params.tau_phi]),[],[],[],[],transform([1e-10 2e-3]),transform([1e1 5e1]),[],options);                        
-        [params.phi,adaptation_stats.phi]=deal(itransform(adaptation_stats.beta(1)));
-        [params.tau_phi,adaptation_stats.tau_phi] = deal(itransform(adaptation_stats.beta(2)));            
+            adaptation_stats.grad,adaptation_stats.hessian] = fmincon(optim_fun,params.transform([params.phi;params.tau_phi]),[],[],[],[],params.transform([1e-10 2e-3]),params.transform([1e1 5e1]),[],options);                        
+        [params.phi,adaptation_stats.phi]=deal(params.itransform(adaptation_stats.beta(1)));
+        [params.tau_phi,adaptation_stats.tau_phi] = deal(params.itransform(adaptation_stats.beta(2)));            
         adaptation_stats.se=sqrt(diag(inv(adaptation_stats.hessian)));
-        adaptation_stats.phi_range = itransform(adaptation_stats.beta(1) +[-1 1]*adaptation_stats.se(1));
-        adaptation_stats.tau_phi_range = itransform(adaptation_stats.beta(2) +[-1 1]*adaptation_stats.se(2));   
+        adaptation_stats.phi_range = params.itransform(adaptation_stats.beta(1) +[-1 1]*adaptation_stats.se(1));
+        adaptation_stats.tau_phi_range = params.itransform(adaptation_stats.beta(2) +[-1 1]*adaptation_stats.se(2));   
         adaptation_stats.within_stream=params.within_stream;
         X = X_update_fun(params.phi,params.tau_phi);          
     end
-    options = statset('MaxIter',params.maxIter);   
     if params.useGPU
         X=gpuArray(X);
     end
-    [~,dev,stats] = glmfit(X,Y,params.distribution,'options',options,'lambda',params.lambda);            
+    [~,dev,stats] = glmfit(X,Y,params.distribution,'options',glm_options,'lambda',params.lambda);            
     stats.dev=dev;
     Yhat=gather(params.link.Inverse(stats.beta(1)+X*stats.beta(2:end)));
     if params.fit_adaptation
@@ -382,52 +388,77 @@ function [stats,Yhat] = fit(X,Y,params,trials)
     nf=length(fields);
     for f=1:nf
         stats.(fields{f}) = gather(stats.(fields{f}));
-    end    
-end
+    end  
 
-function NLL = NLL_fun(X_update_fun,Y,phi,tau_phi,params)
-    X = X_update_fun(phi,tau_phi);  
-    options = statset('MaxIter',params.maxIter);                  
-    if params.useGPU
-        X=gpuArray(X);
-    end        
-    beta = glmfit(X,Y,params.distribution,'options',options,'lambda',params.lambda);       
-    pred = params.link.Inverse(beta(1)+X*beta(2:end));    
-    switch params.distribution
-        case 'poisson'
-            NLL = -sum(log(poisspdf(Y,pred)));
-        case 'normal'
-            NLL = -sum(log(normpdf(Y,pred,1)));
-    end 
-    NLL=gather(NLL);
-end
+    function [NLL,beta] = NLL_fun(phi,tau_phi)
+        thisX = X_update_fun(phi,tau_phi);  
+        if params.useGPU
+            thisX=gpuArray(thisX);
+        end        
+        [beta,~,these_stats] = glmfit(thisX,Y,params.distribution,'options',glm_options,'lambda',params.lambda);     
+        if 1/these_stats.cond<eps || these_stats.badly_scaled % disallow adaptation params which cause numerical instability in GLM fitting
+            NLL=Inf;
+            return
+        end
+        pred = params.link.Inverse(beta(1)+thisX*beta(2:end));    
+        switch params.distribution
+            case 'poisson'
+                NLL = -sum(log(poisspdf(Y,pred)));
+            case 'normal'
+                NLL = -sum(log(normpdf(Y,pred,1)));
+        end 
+        NLL=gather(NLL);
+    end
 
-function stop = optim_status_fun(x,optimValues,state,time_at_start,itransform)
-    stop=false;
-    switch state
-        case 'iter'
-            if isempty(optimValues.stepsize)
-                if isempty(optimValues.firstorderopt)
-                    fprintf('   %2d           %3d         %10.10e                                             %3.3e      %4.1f         %6.1f\n',...
-                        optimValues.iteration,optimValues.funccount,optimValues.fval,...
-                        itransform(x(1)),1000*itransform(x(2)),toc(time_at_start));
+
+
+    function stop = optim_status_fun(x,optimValues,state)
+        optimValues.phi=x(1);
+        optimValues.tau_phi=x(2);
+        stop=false;
+        switch state
+            case {'iter','done'}
+                if ~isempty(Y_test) && any(Y_test)
+                    X_test = X_test_update_fun(optimValues.phi,optimValues.tau_phi);  
+                    pred_test = params.link.Inverse(beta(1)+X_test*beta(2:end));
+                    switch params.distribution
+                        case 'poisson'
+                            optimValues.NLL_test_per_timepoint = gather(-mean(log(poisspdf(Y_test,pred_test))));
+                        case 'normal'
+                            optimValues.NLL_test_per_timepoint = gather(-mean(log(normpdf(Y_test,pred_test,1))));
+                    end 
                 else
-                    fprintf('   %2d           %3d         %10.10e                         %3.3e           %3.3e      %4.1f         %6.1f\n',...
-                        optimValues.iteration,optimValues.funccount,optimValues.fval,optimValues.firstorderopt,...
-                       itransform(x(1)),1000*itransform(x(2)),toc(time_at_start));                        
+                    optimValues.NLL_test_per_timepoint=NaN;
                 end
-            else
-                fprintf('   %2d           %3d         %10.10e     %3.3e           %3.3e           %3.3e      %4.1f         %6.1f\n',...
-                  optimValues.iteration,optimValues.funccount,optimValues.fval,optimValues.stepsize,optimValues.firstorderopt,...
-                  itransform(x(1)),1000*itransform(x(2)),toc(time_at_start));                
-            end
-        case 'interrupt'
-              % Probably no action here. Check conditions to see  
-              % whether optimization should quit.
-        case 'init'
-              fprintf('\nIteration    Func Count    NLL per timepoint     Step Size      1st Order Optimality       Phi         Tau (ms)     Time Elapsed (s)\n');
-        case 'done'
-              % Cleanup of plots, guis, or final plot
-    otherwise
+                optimValues.NLL_train_per_timepoint = optimValues.fval./size(Y,1);
+                optimValues.state=state;
+                adaptation_stats.iter_info(optimValues.iteration+1) = optimValues;
+                if isempty(optimValues.stepsize)
+                    if isempty(optimValues.firstorderopt)
+                        fprintf('   %2d           %3d            %10.10e             %10.10e         %3.3e      %4.1f         %6.1f\n',...
+                            optimValues.iteration,optimValues.funccount,optimValues.NLL_train_per_timepoint,optimValues.NLL_test_per_timepoint,...
+                            params.itransform(optimValues.phi),1000*params.itransform(optimValues.tau_phi),toc(time_at_start));
+                    else
+                        fprintf('   %2d           %3d            %10.10e             %10.10e         %3.3e           %3.3e      %4.1f         %6.1f\n',...
+                            optimValues.iteration,optimValues.funccount,optimValues.NLL_train_per_timepoint,optimValues.NLL_test_per_timepoint,optimValues.firstorderopt,...
+                           params.itransform(optimValues.phi),1000*params.itransform(optimValues.tau_phi),toc(time_at_start));                        
+                    end
+                else
+                        fprintf('   %2d           %3d            %10.10e             %10.10e         %3.3e           %3.3e           %3.3e      %4.1f         %6.1f\n',...
+                      optimValues.iteration,optimValues.funccount,optimValues.NLL_train_per_timepoint,optimValues.NLL_test_per_timepoint,optimValues.stepsize,optimValues.firstorderopt,...
+                      params.itransform(optimValues.phi),1000*params.itransform(optimValues.tau_phi),toc(time_at_start));                
+                end
+                if state=="done"
+                    fprintf('...done.\n');
+                end
+            case 'interrupt'
+                  % Probably no action here. Check conditions to see  
+                  % whether optimization should quit.
+            case 'init'
+                  fprintf('\nIteration    Func Count    NLL per timepoint (train)    NLL per timepoint (test)     Step Size      1st Order Optimality       Phi         Tau (ms)     Time Elapsed (s)\n');
+        end
     end
 end
+
+
+
