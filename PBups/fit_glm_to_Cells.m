@@ -240,23 +240,18 @@ function [stats,Yhat,Yhat_cv] = mainLoop(X,Y,params)
     % separate dm structure for each cell storing this
     tic;fprintf('   Fitting UN cross-validated model ... ');drawnow; 
     nTrials = numel(params.dm.trialIndices);
-    Yhat_cv=[];
-    [stats,Yhat] = fit(X, Y, params, 1:nTrials);   
-    % compute model predicted firing rates
+    [stats,Yhat] = fit(X, Y, params, 1:nTrials);  
+    params.dm.biasCol=1;    
+    Yhat_cv = zeros(size(Y));
     fprintf('took %s.\n',timestr(toc));
-    % reconstruct fitted kernels by weighted combination of basis functions
-    params.dm.biasCol=1;
-    [stats.ws,stats.wvars] = buildGLM.combineWeights(params.dm, params.dm.dspec, stats.beta,stats.covb,true );
     % Fit cross-validated model (if requested and if uncross-validated fit was not badly scaled)
     if ~isempty(params.kfold) && params.kfold>1
         if stats.badly_scaled
             fprintf('Skipping cross-validation since fit to all data was badly scaled.\n');
             stats.cvp=[];
             stats.cv_stats=[];
-            stats.cv_NLL=[];
         else
             stats.cvp = cvpartition(nTrials,'KFold',params.kfold);
-            combineWeightFun = @(raw_weights,covariances)buildGLM.combineWeights(params.dm,params.dm.dspec, raw_weights , covariances,false);
             getSpkIdxFun = @(trial_idx)buildGLM.getSpikeIndicesforTrial(params.dm.dspec.expt,trial_idx);        
             tic;fprintf('   Fitting under %g-fold cross-validation ... ',params.kfold);    
             [train_idx,test_idx] = deal(cell(1,params.kfold));                
@@ -275,51 +270,28 @@ function [stats,Yhat,Yhat_cv] = mainLoop(X,Y,params)
                     Ys{i}=Y(train_idx{i});
                 end
                 parfor i=1:params.kfold 
-                    cv_stats(i) = fit(Xs{i},Ys{i}, params, idx{i});  
+                    [cv_stats(i),~,Yhat_cv_cell{i}] = fit(Xs{i},Ys{i}, params, idx{i});  
                 end    
+                for i=1:params.kfold
+                    Yhat_cv(test_idx{i}) = Yhat_cv_cell{i};
+                end
             else
                 for i=params.kfold:-1:1
-                    cv_stats(i) = fit(X(train_idx{i},:),Y(train_idx{i}), params, stats.cvp.training(i));  
+                    [cv_stats(i),~,Yhat_cv(test_idx{i})] = fit(X(train_idx{i},:),Y(train_idx{i}), params, stats.cvp.training(i));  
                 end                  
-            end
-            Yhat_cv=zeros(size(Yhat));
-            for i=1:params.kfold
-                [cv_stats(i).ws,cv_stats(i).wvars] =combineWeightFun(cv_stats(i).beta,cv_stats(i).covb);
-                covar_idx=find(ismember({params.dm.dspec.covar.label},{'left_clicks','right_clicks'}));      
-                if params.fit_adaptation
-                    X_test=buildGLM.updateSparseDesignMatrix_covar(params.dm.dspec, find(stats.cvp.test(i)), cv_stats(i).adaptation_stats, covar_idx, X(test_idx{i},:));
-                else
-                    X_test = X(test_idx{i},:);
-                end
-                Yhat_cv(test_idx{i})=params.link.Inverse(cv_stats(i).beta(1)+X_test*cv_stats(i).beta(2:end));   
-                switch params.distribution
-                    case 'poisson'
-                        cv_stats(i).NLL_test = -sum(log(poisspdf(Y(test_idx{i}),Yhat_cv(test_idx{i}))));
-                    case 'normal'
-                        cv_stats(i).NLL_test = -sum(log(normpdf(Y(test_idx{i}),Yhat_cv(test_idx{i}),1)));
-                end
-                cv_stats(i).NLL_train=cv_stats(i).NLL;                
-            end
-            switch params.distribution
-                case 'poisson'
-                    stats.cv_NLL = -sum(log(poisspdf(Y,Yhat_cv)));
-                case 'normal'
-                    stats.cv_NLL = -sum(log(normpdf(Y,Yhat_cv,1)));
-            end             
-            cv_stats = rmfield(cv_stats,'wts');     
-            cv_stats=rmfield(cv_stats,'NLL');
+            end       
             stats.cv_stats=cv_stats;
             fprintf('Took %s.\n',timestr(toc));            
         end
     end
     %stats.covariate_stats = get_covariate_stats(stats,params);
-    fields = fieldnames(stats.wvars);
-    for f=1:length(fields) % you can remove covariance structure now that summary has been computed
-        stats.wvars.(fields{f}) = rmfield(stats.wvars.(fields{f}),'cov');
-    end
+%     fields = fieldnames(stats.wvars);
+%     for f=1:length(fields) % you can remove covariance structure now that summary has been computed
+%         stats.wvars.(fields{f}) = rmfield(stats.wvars.(fields{f}),'cov');
+%     end
 end
 
-function [stats,Yhat] = fit(X,Y,params,trials)
+function [stats,Yhat,Yhat_test] = fit(X,Y,params,trials)
     if params.useGPU
         Y=gpuArray(Y);
     end  
@@ -329,6 +301,7 @@ function [stats,Yhat] = fit(X,Y,params,trials)
         train_idx = find(getSpkIdxFun(trials));
         test_idx = find(getSpkIdxFun(~trials));
         Y_test = Y(test_idx);
+        X_test = X(test_idx,:);
         X = X(train_idx,:);
         Y = Y(train_idx);
     else
@@ -350,9 +323,11 @@ function [stats,Yhat] = fit(X,Y,params,trials)
         time_at_start=tic;      
         if cv
             X_test_update_fun = @(phi,tau_phi)buildGLM.updateSparseDesignMatrix_covar(params.dm.dspec, ~trials, struct('phi',phi,'tau_phi',tau_phi,'within_stream',params.within_stream), covar_idx, X);                    
+            return_cov=false;
         else      
             X_test_update_fun=[];
             Y_test=[];
+            return_cov=true;
         end
         options=optimoptions('fmincon','UseParallel',false,'OutputFcn',@optim_status_fun,'Algorithm','interior-point','FunctionTolerance',eps,'StepTolerance',1e-8);  % stop if you are taking tiny steps but not if the change in LL is small -- sometimes the gradient is really small far from the optimum and you should keep going until you get near the basin              
         optim_fun = @(x)NLL_fun(params.itransform(x(1)),params.itransform(x(2)));                        
@@ -371,26 +346,32 @@ function [stats,Yhat] = fit(X,Y,params,trials)
     end
     [~,dev,stats] = glmfit(X,Y,params.distribution,'options',glm_options,'lambda',params.lambda);            
     stats.dev=dev;
-    Yhat=gather(params.link.Inverse(stats.beta(1)+X*stats.beta(2:end)));
     if params.fit_adaptation
         stats.adaptation_stats=adaptation_stats;
         stats.NLL = adaptation_stats.NLL;
+        adaptation_stats = rmfield(adaptation_stats,'NLL');
     else
-        switch params.distribution
-            case 'poisson'
-                NLL = -sum(log(poisspdf(Y,Yhat)));
-            case 'normal'
-                NLL = -sum(log(normpdf(Y,Yhat,1)));
-        end 
-        stats.NLL=NLL;
+        Yhat=gather(params.link.Inverse(stats.beta(1)+X*stats.beta(2:end)));   
+        stats.NLL = compute_LL(Y,Yhat,params.distribution,true);
+    end
+    if cv
+        if params.fit_adaptation
+            X_test = X_test_update_fun(params.phi,params.tau_phi);          
+        end     
+        Yhat_test=gather(params.link.Inverse(stats.beta(1)+X_test*stats.beta(2:end)));   
+        stats.NLL_test = compute_LL(Y_test,Yhat_test,params.distribution,true);
+        stats.NLL_train = stats.NLL;
+        stats=rmfield(stats,'NLL');        
     end
     fields = fieldnames(stats);
     nf=length(fields);
     for f=1:nf
         stats.(fields{f}) = gather(stats.(fields{f}));
     end  
+    [stats.ws,stats.wvars]=buildGLM.combineWeights(params.dm,params.dm.dspec, stats.beta , stats.covb,return_cov);
 
-    function [NLL,beta] = NLL_fun(phi,tau_phi)
+    %% this is the function being minimized
+    function NLL = NLL_fun(phi,tau_phi)
         thisX = X_update_fun(phi,tau_phi);  
         if params.useGPU
             thisX=gpuArray(thisX);
@@ -401,17 +382,10 @@ function [stats,Yhat] = fit(X,Y,params,trials)
             return
         end
         pred = params.link.Inverse(beta(1)+thisX*beta(2:end));    
-        switch params.distribution
-            case 'poisson'
-                NLL = -sum(log(poisspdf(Y,pred)));
-            case 'normal'
-                NLL = -sum(log(normpdf(Y,pred,1)));
-        end 
-        NLL=gather(NLL);
+        NLL = compute_NLL(Y,pred,params.distribution,false);
     end
-
-
-
+    
+    %% this nested function is the fmincon output function which prints and stores information about each iteration
     function stop = optim_status_fun(x,optimValues,state)
         optimValues.phi=x(1);
         optimValues.tau_phi=x(2);
@@ -421,12 +395,7 @@ function [stats,Yhat] = fit(X,Y,params,trials)
                 if ~isempty(Y_test) && any(Y_test)
                     X_test = X_test_update_fun(optimValues.phi,optimValues.tau_phi);  
                     pred_test = params.link.Inverse(beta(1)+X_test*beta(2:end));
-                    switch params.distribution
-                        case 'poisson'
-                            optimValues.NLL_test_per_timepoint = gather(-mean(log(poisspdf(Y_test,pred_test))));
-                        case 'normal'
-                            optimValues.NLL_test_per_timepoint = gather(-mean(log(normpdf(Y_test,pred_test,1))));
-                    end 
+                    optimValues.NLL_test_per_timepoint = compute_NLL(Y_test,pred_test,params.distribution,true);
                 else
                     optimValues.NLL_test_per_timepoint=NaN;
                 end
@@ -458,7 +427,21 @@ function [stats,Yhat] = fit(X,Y,params,trials)
                   fprintf('\nIteration    Func Count    NLL per timepoint (train)    NLL per timepoint (test)     Step Size      1st Order Optimality       Phi         Tau (ms)     Time Elapsed (s)\n');
         end
     end
+
 end
 
-
-
+function NLL = compute_NLL(Y,Y_hat,distribution,per_timepoint)
+    if per_timepoint
+        func=@mean;
+    else
+        func=@sum;
+    end
+    switch distribution
+        case 'poisson'
+            NLL = gather(-func(log(poisspdf(Y,Y_haat))));
+        case 'normal'
+            NLL = gather(-func(log(normpdf(Y,Y_hat,1))));
+        otherwise
+            error('Unrecognized distribution.');
+    end
+end
