@@ -493,7 +493,7 @@ switch mode
 end
 % single precision providse a roughly 40% speed improvement. Accuracy may become a problem though. Would need to be tested.
 if any(isnan(b))
-   error('Error in IRLS: weights returned NaN.'); % in some rare cases, this happens when on GPU, but not with same data on CPU. No idea why.
+    warning('Error in IRLS: weights returned NaN.'); 
 end
 
 function mu = startingVals(distr,y,N)
