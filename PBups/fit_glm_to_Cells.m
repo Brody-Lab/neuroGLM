@@ -240,8 +240,8 @@ function [stats,Yhat,Yhat_cv] = mainLoop(X,Y,params)
     % separate dm structure for each cell storing this
     tic;fprintf('   Fitting UN cross-validated model ... ');drawnow; 
     nTrials = numel(params.dm.trialIndices);
+    params.dm.biasCol=1;        
     [stats,Yhat] = fit(X, Y, params, 1:nTrials);  
-    params.dm.biasCol=1;    
     Yhat_cv = zeros(size(Y));
     fprintf('took %s.\n',timestr(toc));
     % Fit cross-validated model (if requested and if uncross-validated fit was not badly scaled)
@@ -322,7 +322,7 @@ function [stats,Yhat,Yhat_test] = fit(X,Y,params,trials)
         X_update_fun = @(phi,tau_phi)buildGLM.updateSparseDesignMatrix_covar(params.dm.dspec, trials, struct('phi',phi,'tau_phi',tau_phi,'within_stream',params.within_stream), covar_idx, X);
         time_at_start=tic;      
         if cv
-            X_test_update_fun = @(phi,tau_phi)buildGLM.updateSparseDesignMatrix_covar(params.dm.dspec, ~trials, struct('phi',phi,'tau_phi',tau_phi,'within_stream',params.within_stream), covar_idx, X);                    
+            X_test_update_fun = @(phi,tau_phi)buildGLM.updateSparseDesignMatrix_covar(params.dm.dspec, ~trials, struct('phi',phi,'tau_phi',tau_phi,'within_stream',params.within_stream), covar_idx, X_test);                    
             return_cov=false;
         else      
             X_test_update_fun=[];
@@ -346,12 +346,12 @@ function [stats,Yhat,Yhat_test] = fit(X,Y,params,trials)
     end
     [~,dev,stats] = glmfit(X,Y,params.distribution,'options',glm_options,'lambda',params.lambda);            
     stats.dev=dev;
+    Yhat=gather(params.link.Inverse(stats.beta(1)+X*stats.beta(2:end)));       
     if params.fit_adaptation
         stats.adaptation_stats=adaptation_stats;
         stats.NLL = adaptation_stats.NLL;
         adaptation_stats = rmfield(adaptation_stats,'NLL');
     else
-        Yhat=gather(params.link.Inverse(stats.beta(1)+X*stats.beta(2:end)));   
         stats.NLL = compute_LL(Y,Yhat,params.distribution,true);
     end
     if cv
@@ -359,7 +359,7 @@ function [stats,Yhat,Yhat_test] = fit(X,Y,params,trials)
             X_test = X_test_update_fun(params.phi,params.tau_phi);          
         end     
         Yhat_test=gather(params.link.Inverse(stats.beta(1)+X_test*stats.beta(2:end)));   
-        stats.NLL_test = compute_LL(Y_test,Yhat_test,params.distribution,true);
+        stats.NLL_test = compute_NLL(Y_test,Yhat_test,params.distribution,true);
         stats.NLL_train = stats.NLL;
         stats=rmfield(stats,'NLL');        
     end
@@ -372,6 +372,7 @@ function [stats,Yhat,Yhat_test] = fit(X,Y,params,trials)
 
     %% this is the function being minimized
     function NLL = NLL_fun(phi,tau_phi)
+        global beta
         thisX = X_update_fun(phi,tau_phi);  
         if params.useGPU
             thisX=gpuArray(thisX);
@@ -387,6 +388,7 @@ function [stats,Yhat,Yhat_test] = fit(X,Y,params,trials)
     
     %% this nested function is the fmincon output function which prints and stores information about each iteration
     function stop = optim_status_fun(x,optimValues,state)
+        global beta
         optimValues.phi=x(1);
         optimValues.tau_phi=x(2);
         stop=false;
@@ -438,7 +440,7 @@ function NLL = compute_NLL(Y,Y_hat,distribution,per_timepoint)
     end
     switch distribution
         case 'poisson'
-            NLL = gather(-func(log(poisspdf(Y,Y_haat))));
+            NLL = gather(-func(log(poisspdf(Y,Y_hat))));
         case 'normal'
             NLL = gather(-func(log(normpdf(Y,Y_hat,1))));
         otherwise
