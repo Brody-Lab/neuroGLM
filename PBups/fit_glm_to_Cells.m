@@ -261,7 +261,8 @@ function [stats,Yhat,Yhat_cv] = mainLoop(X,Y,params)
             getSpkIdxFun = @(trial_idx)buildGLM.getSpikeIndicesforTrial(params.dm.dspec.expt,trial_idx);        
             tic;fprintf('   Fitting under %g-fold cross-validation ... ',params.kfold);    
             [train_idx,test_idx] = deal(cell(1,params.kfold));                
-            for i=1:params.kfold
+            for i=params.kfold:-1:1
+                idx{i} = stats.cvp.training(i);
                 train_idx{i} = getSpkIdxFun(stats.cvp.training(i));
                 test_idx{i} = getSpkIdxFun(stats.cvp.test(i));
             end
@@ -270,26 +271,23 @@ function [stats,Yhat,Yhat_cv] = mainLoop(X,Y,params)
                     delete(gcp('nocreate'));    
                     parpool(params.n_workers);
                 end
-                for i=params.kfold:-1:1
-                    Xs{i}=X(train_idx{i},:);
-                    idx{i} = stats.cvp.training(i);
-                    Ys{i}=Y(train_idx{i});
-                end
                 parfor i=1:params.kfold 
-                    [cv_stats(i),~,Yhat_cv_cell{i}] = fit(Xs{i},Ys{i}, params, idx{i});  
+                    [cv_stats(i),~,Yhat_cv_cell{i}] = fit(X,Y, params,idx{i});  
                 end    
                 for i=1:params.kfold
                     Yhat_cv(test_idx{i}) = Yhat_cv_cell{i};
                 end
             else
                 for i=params.kfold:-1:1
-                    [cv_stats(i),~,Yhat_cv(test_idx{i})] = fit(X(train_idx{i},:),Y(train_idx{i}), params, stats.cvp.training(i));  
+                    [cv_stats(i),~,Yhat_cv(test_idx{i})] = fit(X,Y, params, idx{i});  
                 end                  
             end       
             stats.cv_stats=cv_stats;
             fprintf('Took %s.\n',timestr(toc));            
         end
     end
+    stats.NLL = compute_NLL(Y,Yhat,params.distribution,true);
+    stats.cv_NLL = compute_NLL(Y,Yhat_cv,params.distribution,true);
     %stats.covariate_stats = get_covariate_stats(stats,params);
 %     fields = fieldnames(stats.wvars);
 %     for f=1:length(fields) % you can remove covariance structure now that summary has been computed
@@ -304,14 +302,16 @@ function [stats,Yhat,Yhat_test] = fit(X,Y,params,trials)
     if ~all(trials)
         cv=true;
         getSpkIdxFun = @(trial_idx)buildGLM.getSpikeIndicesforTrial(params.dm.dspec.expt,trial_idx);                
-        train_idx = find(getSpkIdxFun(trials));
-        test_idx = find(getSpkIdxFun(~trials));
+        train_idx = getSpkIdxFun(trials);
+        test_idx = getSpkIdxFun(~trials);
         Y_test = Y(test_idx);
         X_test = X(test_idx,:);
         X = X(train_idx,:);
         Y = Y(train_idx);
+        return_cov=true;        
     else
         cv=false;
+        return_cov=false;        
     end
     glm_options = statset('MaxIter',params.maxIter);       
     if params.fit_adaptation
@@ -329,11 +329,9 @@ function [stats,Yhat,Yhat_test] = fit(X,Y,params,trials)
         time_at_start=tic;      
         if cv
             X_test_update_fun = @(phi,tau_phi)buildGLM.updateSparseDesignMatrix_covar(params.dm.dspec, ~trials, struct('phi',phi,'tau_phi',tau_phi,'within_stream',params.within_stream), covar_idx, X_test);                    
-            return_cov=false;
         else      
             X_test_update_fun=[];
             Y_test=[];
-            return_cov=true;
         end
         options=optimoptions('fmincon','UseParallel',false,'OutputFcn',@optim_status_fun,'Algorithm','interior-point','FunctionTolerance',eps,'StepTolerance',1e-8);  % stop if you are taking tiny steps but not if the change in LL is small -- sometimes the gradient is really small far from the optimum and you should keep going until you get near the basin              
         optim_fun = @(x)NLL_fun(params.itransform(x(1)),params.itransform(x(2)));                        
