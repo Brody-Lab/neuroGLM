@@ -29,6 +29,7 @@ function [stats,params] = fit_glm_to_Cells(Cells,varargin)
     p.addParameter('save_by_cell',true,@(x)validateattributes(x,{'logical'},{'scalar'}));    
     p.addParameter('fit',true,@(x)validateattributes(x,{'logical'},{'scalar'})); % setting to false is useful when you just want the params structure
     p.addParameter('save_params',true,@(x)validateattributes(x,{'logical'},{'scalar'})); % setting to false useful when you are simultaneously running jobs across cells. you don't want params to overwrite each other.
+    p.addParameter('test_cv',false,@(x)validateattributes(x,{'logical'},{'scalar'})); % go straight to cross-validation for testing purposes 
     p.parse(varargin{:});
     params=p.Results;
     validatestring(params.distribution,{'poisson','normal'},mfilename,'distribution');
@@ -238,10 +239,15 @@ function [stats,Yhat,Yhat_cv] = mainLoop(X,Y,params)
     % for all cells) and the parent function params
     % if z-scoring was performed on the design matrix, you'd need to have a
     % separate dm structure for each cell storing this
-    tic;fprintf('   Fitting UN cross-validated model ... ');drawnow; 
     nTrials = numel(params.dm.trialIndices);
-    params.dm.biasCol=1;        
-    [stats,Yhat] = fit(X, Y, params, 1:nTrials);  
+    params.dm.biasCol=1;  
+    if params.test_cv
+        stats.badly_scaled=false;
+        Yhat=[];
+    else
+        tic;fprintf('   Fitting UN cross-validated model ... ');drawnow;         
+        [stats,Yhat] = fit(X, Y, params, 1:nTrials);          
+    end
     Yhat_cv = zeros(size(Y));
     fprintf('took %s.\n',timestr(toc));
     % Fit cross-validated model (if requested and if uncross-validated fit was not badly scaled)
@@ -349,10 +355,10 @@ function [stats,Yhat,Yhat_test] = fit(X,Y,params,trials)
     Yhat=gather(params.link.Inverse(stats.beta(1)+X*stats.beta(2:end)));       
     if params.fit_adaptation
         stats.adaptation_stats=adaptation_stats;
-        stats.NLL = adaptation_stats.NLL;
+        stats.NLL = compute_NLL(Y,Yhat,params.distribution,true);
         adaptation_stats = rmfield(adaptation_stats,'NLL');
     else
-        stats.NLL = compute_LL(Y,Yhat,params.distribution,true);
+        stats.NLL = compute_NLL(Y,Yhat,params.distribution,true);
     end
     if cv
         if params.fit_adaptation
@@ -373,7 +379,7 @@ function [stats,Yhat,Yhat_test] = fit(X,Y,params,trials)
     %% this is the function being minimized
     function NLL = NLL_fun(phi,tau_phi)
         global beta
-        thisX = X_update_fun(phi,tau_phi);  
+        thisX = X_update_fun(params.itransform(phi),params.itransform(tau_phi));  
         if params.useGPU
             thisX=gpuArray(thisX);
         end        
@@ -383,7 +389,7 @@ function [stats,Yhat,Yhat_test] = fit(X,Y,params,trials)
             return
         end
         pred = params.link.Inverse(beta(1)+thisX*beta(2:end));    
-        NLL = compute_NLL(Y,pred,params.distribution,false);
+        NLL = compute_NLL(Y,pred,params.distribution,false); % has to be false. if you do by timepoint here, the LL surface is too flat for the algorithm (i.e. scaling matters!)
     end
     
     %% this nested function is the fmincon output function which prints and stores information about each iteration
@@ -395,13 +401,13 @@ function [stats,Yhat,Yhat_test] = fit(X,Y,params,trials)
         switch state
             case {'iter','done'}
                 if ~isempty(Y_test) && any(Y_test)
-                    X_test = X_test_update_fun(optimValues.phi,optimValues.tau_phi);  
+                    X_test = X_test_update_fun(params.itransform(optimValues.phi),params.itransform(optimValues.tau_phi));  
                     pred_test = params.link.Inverse(beta(1)+X_test*beta(2:end));
                     optimValues.NLL_test_per_timepoint = compute_NLL(Y_test,pred_test,params.distribution,true);
                 else
                     optimValues.NLL_test_per_timepoint=NaN;
                 end
-                optimValues.NLL_train_per_timepoint = optimValues.fval./size(Y,1);
+                optimValues.NLL_train_per_timepoint = optimValues.fval ./ size(Y,1);
                 optimValues.state=state;
                 adaptation_stats.iter_info(optimValues.iteration+1) = optimValues;
                 if isempty(optimValues.stepsize)

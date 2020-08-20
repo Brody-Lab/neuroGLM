@@ -10,6 +10,9 @@ function X = updateSparseDesignMatrix_covar(dspec, trialIndices, adaptation_para
     expt.trial=expt.trial(trialIndices);
     subIdxs = buildGLM.getGroupIndicesFromDesignSpec(dspec);
     trialT = expt.binfun([expt.trial.duration]);
+    if size(X,1)~=sum(trialT)
+        error('cannot reconcile trial indices supplied with design matrix supplied.');
+    end
     left_click_idx={dspec.covar.label}=="left_clicks";
     right_click_idx={dspec.covar.label}=="right_clicks";
     if nargin>2 &&  abs(adaptation_params.phi-1)>eps && abs(adaptation_params.tau_phi)>eps && any(ismember(covar_idx,find(left_click_idx|right_click_idx)))
@@ -54,7 +57,7 @@ function X = updateSparseDesignMatrix_covar(dspec, trialIndices, adaptation_para
                 if covar.offset==0
                     offset=0;
                 else
-                    offset=dspec.expt.binfun(dspec.expt.param.samplingFreq*covar.offset);
+                    offset=expt.binfun(expt.param.samplingFreq*covar.offset);
                 end
                 switch covar.basis.type
                     case 'makeNonlinearRaisedCos'
