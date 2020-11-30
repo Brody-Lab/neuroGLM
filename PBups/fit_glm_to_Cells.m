@@ -1,7 +1,7 @@
 function [stats,params] = fit_glm_to_Cells(Cells,varargin)
     % fits a GLM for spiking data recorded during PBups and contained within
     % an Cells data structure.
-    % This function is essentially a wrapper for the neuroGLM package forked from the
+    % This function relies on base code forked from the neuroGLM repo from the
     % Pillow lab.
     %% parse and validate inputs
     p=inputParser;
@@ -144,7 +144,10 @@ function [stats,params] = fit_glm_to_Cells(Cells,varargin)
     X = cell(1,length(params.cellno));
     tic;fprintf('\nBuilding design matrices for responsive cells ...');
     spikes=struct(); 
-    for c=length(params.cellno):-1:1      
+    for c=length(params.cellno):-1:1  
+        if c<length(params.cellno) && ~responsive_enough(c)
+            continue
+        end
         dspec = build_dspec_for_pbups(dspec_base,'spike_history',params.cellno(c)); 
         dm = buildGLM.compileSparseDesignMatrix(dspec, 1:nTrials, params , numel(dspec.covar));   % only remake the columns associated with the spike history term since the rest is common across cells
         dm.X(:,1:(dspec.edim-dspec.covar(end).edim))=X_base;
