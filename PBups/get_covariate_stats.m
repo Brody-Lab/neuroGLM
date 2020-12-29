@@ -66,17 +66,17 @@ function [covariate_stats,stats]=get_covariate_stats_internal(stats,dm,dspec,var
         fprintf('took %s.\n',timestr(toc(a)));
     end     
     if ~isfield(stats,'wsamples')
-        stats.wsamples = buildGLM.sampleWeights(dm,stats.beta,stats.covb,'nsamples',1e4);                    
+        stats.wsamples = buildGLM.sampleWeights(dm,stats.beta,stats.covb,'nsamples',1e3);                    
     end
     %% get some basic stats from all covariates
     for i=1:length(covars)
         data = stats.ws.(covars{i}).data;
-        tr = stats.ws.(covars{i}).tr;
+        tr = buildGLM.get_tr(stats.ws.(covars{i}).tr);
         samples = stats.wsamples.(covars{i});
         covariate_stats.(covars{i}).average = mean(params.ilink(data));
         covariate_stats.(covars{i}).average_pval = empirical_p(DC,mean(params.ilink(samples),2)); 
         [~,peak_idx] = max(abs(params.ilink(data)-DC));
-        covariate_stats.(covars{i}).max_deviation_time = stats.ws.(covars{i}).tr(peak_idx);
+        covariate_stats.(covars{i}).max_deviation_time = buildGLM.get_tr(stats.ws.(covars{i}).tr,peak_idx);
         covariate_stats.(covars{i}).max_deviation = params.ilink(data(peak_idx));  
         covariate_stats.(covars{i}).max_deviation_pval = empirical_p(0,samples(:,peak_idx));
         ops = {@lt,@gt};
@@ -108,7 +108,7 @@ function [covariate_stats,stats]=get_covariate_stats_internal(stats,dm,dspec,var
             covariate_stats.pref_click_by_allclicks_average = 'right';
         end        
         %% get max deviation statistics of average across all click kernels
-        tr = stats.ws.(sides{1}).tr;
+        tr = buildGLM.get_tr(stats.ws.(sides{1}).tr);
         [~,peak_idx] = max(abs(params.ilink(mean(left_allclicks,1))-DC));
         covariate_stats.max_deviation_time_left_allclicks = tr(peak_idx);
         covariate_stats.max_deviation_left_allclicks = params.ilink(mean(left_allclicks(:,peak_idx)));
@@ -161,7 +161,7 @@ function [covariate_stats,stats]=get_covariate_stats_internal(stats,dm,dspec,var
     else
         covariate_stats.pref_click_by_average = 'right';
     end
-    tr = stats.ws.(sides{1}).tr;
+    tr = buildGLM.get_tr(stats.ws.(sides{1}).tr);
     if covariate_stats.(sides{1}).max_deviation>covariate_stats.(sides{2}).max_deviation
         covariate_stats.pref_click_by_deviation = 'left';
         idx = find(tr==covariate_stats.(sides{1}).max_deviation_time);  

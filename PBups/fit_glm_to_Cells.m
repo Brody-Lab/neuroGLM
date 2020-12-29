@@ -291,11 +291,11 @@ function [stats,Yhat,Yhat_cv] = mainLoop(X,Y,params)
     end
     stats.NLL = compute_NLL(Y,Yhat,params.distribution,true);
     stats.cv_NLL = compute_NLL(Y,Yhat_cv,params.distribution,true);
-    %stats.covariate_stats = get_covariate_stats(stats,params);
-%     fields = fieldnames(stats.wvars);
-%     for f=1:length(fields) % you can remove covariance structure now that summary has been computed
-%         stats.wvars.(fields{f}) = rmfield(stats.wvars.(fields{f}),'cov');
-%     end
+    stats.covariate_stats = get_covariate_stats(stats,params);
+    fields = fieldnames(stats.wvars);
+    for f=1:length(fields) % you can remove covariance structure now that summary has been computed
+        stats.wvars.(fields{f}) = rmfield(stats.wvars.(fields{f}),'cov');
+    end
 end
 
 function [stats,Yhat,Yhat_test] = fit(X,Y,params,trials)
@@ -311,10 +311,10 @@ function [stats,Yhat,Yhat_test] = fit(X,Y,params,trials)
         X_test = X(test_idx,:);
         X = X(train_idx,:);
         Y = Y(train_idx);
-        return_cov=true;        
+        return_cov=false;        
     else
         cv=false;
-        return_cov=false;        
+        return_cov=true;        
     end
     glm_options = statset('MaxIter',params.maxIter);       
     if params.fit_adaptation
