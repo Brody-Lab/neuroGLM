@@ -56,6 +56,17 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
     end
     % remove side LED and free choice trials by default
     exclude_trials = exclude_trials | abs(Cells.Trials.gamma) > 90;
+    % exclude some rare trials that have no clicks for unclear reasons
+    % (only occurs in some A242 sessions)
+    if isfield(Cells.Trials,'stim_dur_s_theoretical')
+        stim_dur = Cells.Trials.stim_dur_s_theoretical;
+    else
+        stim_dur = Cells.Trials.stim_dur_s;
+    end    
+    if any(isnan(stim_dur))
+        warning('Found %g accumulation trials with no clicks. Removing them.',sum(isnan(stim_dur)));
+    end
+    exclude_trials = exclude_trials | isnan(stim_dur);
     %% preallocate structure in memory
     rawData.trial = struct();
     rawData.trial(sum(~exclude_trials)).duration = duration; % preallocate
@@ -82,11 +93,7 @@ function rawData = make_glm_trials_from_Cells(Cells,varargin)
             end
         end
         rawData.trial(t).gamma = Cells.Trials.gamma(original_t);
-        if isfield(Cells.Trials,'stim_dur_s_theoretical')
-            rawData.trial(t).stim_dur = Cells.Trials.stim_dur_s_theoretical(original_t);
-        else
-            rawData.trial(t).stim_dur = Cells.Trials.stim_dur_s(original_t);
-        end
+        rawData.trial(t).stim_dur = stim_dur(original_t);
         rawData.trial(t).pokedR = Cells.Trials.pokedR(original_t);
         for c = params.cellno(:)'
             rawData.trial(t).(['sptrain',num2str(c)]) = round( (Cells.spike_time_s.(params.ref_event){c}{original_t} - params.spikeWindowS(1) ) * params.samplingFreq);
