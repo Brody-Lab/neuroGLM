@@ -194,7 +194,7 @@ function [covariate_stats,stats]=get_covariate_stats_internal(stats,dm,dspec,var
     covariate_stats.max_deviation_LR_difference_max_MI_pval = 2*min(tmp,1-tmp);    
 
     %% choice modulation
-    covariate_stats.choice_MI_cpoke_out_prepost = MIfun(covariate_stats.cpoke_out_left.average_prepost,covariate_stats.cpoke_out_right.average_prepost);    
+    covariate_stats.choice_MI_cpoke_out_prepost = MIfun(covariate_stats.cpoke_out_left.average_prepost,covariate_stats.cpoke_out_right.average_prepost);   % positive means left preferring 
     for i=1:2
         tmp = mean(mean(stats.wsamples.cpoke_out_left(:,covariate_stats.cpoke_out_left.prepost_idx{i}),2)>mean(stats.wsamples.cpoke_out_right(:,covariate_stats.cpoke_out_right.prepost_idx{i}),2));
         covariate_stats.choice_MI_pval(i) = 2*min(tmp,1-tmp);

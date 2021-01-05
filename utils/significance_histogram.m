@@ -5,6 +5,7 @@ function [mean_values,pval] = significance_histogram(values,varargin)
     p.addRequired('values',@(x)validateattributes(x,{'numeric'},{}));
     p.addRequired('pvals',@(x)validateattributes(x,{'numeric'},{'nonnegative'}));
     p.addParameter('nbins',15,@(x)validateattributes(x,{'numeric'},{'positive','integer','scalar'}));
+    p.addParameter('bin_limits',[NaN NaN]);
     p.addParameter('value_label','');
     p.parse(values,varargin{:});
     [values,pvals,value_label]=struct2var(p.Results,{'values','pvals','value_label'});
@@ -14,11 +15,19 @@ function [mean_values,pval] = significance_histogram(values,varargin)
             error('values and pvals must be the same size.');
         end
         sig=histogram(values(pvals<0.05));
-        maxOffset=max(abs(minmax(values)-dividingLine));
-        sig.BinLimits=dividingLine + [-maxOffset maxOffset];
+        maxOffset=max(abs([min(values) max(values)]-dividingLine));
+        if any(isnan(p.Results.bin_limits))
+           sig.BinLimits=dividingLine + [-maxOffset maxOffset];
+        else
+           sig.BinLimits = p.Results.bin_limits; 
+        end
         sig.NumBins=nearestEven(p.Results.nbins);
         nonsig=histogram(values(pvals>0.05));
-        nonsig.BinLimits=dividingLine + [-maxOffset maxOffset];
+        if any(isnan(p.Results.bin_limits))
+           nonsig.BinLimits=dividingLine + [-maxOffset maxOffset];
+        else
+           nonsig.BinLimits = p.Results.bin_limits; 
+        end
         nonsig.NumBins=nearestEven(p.Results.nbins);
         xval=sig.BinEdges([1:end-1])+sig.BinWidth/2;
         sigval=sig.Values;

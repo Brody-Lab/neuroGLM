@@ -26,7 +26,7 @@ function varargout = struct2var(struct,fields,cat_dim,add_string)
             if ischar(struct(1).(fields{i}))
                 assignin('caller',[fields{i},add_string],{struct.(fields{i})});                
             else
-                assignin('caller',[fields{i},add_string],cat(cat_dim,struct.(fields{i})));
+                assignin('caller',[fields{i},add_string],cat_nans(cat_dim,struct.(fields{i})));
             end
         end
     else
@@ -34,7 +34,14 @@ function varargout = struct2var(struct,fields,cat_dim,add_string)
             error('Number of outputs must match number of fields.');
         end
         for i=nargout:-1:1
-            varargout{i}=cat(cat_dim,struct.(fields{i}));
+            varargout{i}=cat_nans(cat_dim,struct.(fields{i}));
         end
     end
+end
+
+function d= cat_nans(dim,varargin)
+    nans = cellfun(@isempty,varargin);
+    varargin(nans)={NaN};
+    d=cat(dim,varargin{:});
+
 end

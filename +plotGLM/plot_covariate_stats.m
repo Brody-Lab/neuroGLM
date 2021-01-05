@@ -1,4 +1,4 @@
-function plot_covariate_stats(stats)
+function plot_covariate_stats(stats,stats_cat)
 
 %% get rid of bad fits right off the bat
 for i=1:length(stats)
@@ -9,6 +9,8 @@ for i=1:length(stats)
     end
 end
 stats = stats(~bad_fit);
+
+stats_cat = stats_cat(~bad_fit);
 
 %% define significance threshold
 pval=0.05;
@@ -177,7 +179,7 @@ for i=1:3
         boots = bootstrp(1000,@nanmean,pref_click_max_deviation_time(pref_click_max_deviation_pval<pval));
         
     else % these two could be substituted with the allclick version if necessary
-        h(i) = histfun(nonpref_clsave('X:/abondy/Cosyne 2020/site_7_stats.mat','stats_cat','params')ick_max_deviation_time,nonpref_click_max_deviation_pval,'edgecolor',[0.8 0.8 0.8]);
+        h(i) = histfun(nonpref_click_max_deviation_time,nonpref_click_max_deviation_pval,'edgecolor',[0.8 0.8 0.8]);
         line([1 1]*median(nonpref_click_max_deviation_time(nonpref_click_max_deviation_pval<pval)),[1 1.1],'color',[0.8 0.8 0.8]);        
         boots = bootstrp(1000,@nanmedian,nonpref_click_max_deviation_time(nonpref_click_max_deviation_pval<pval));
         
