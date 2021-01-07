@@ -44,7 +44,7 @@ function [mean_values,pval] = significance_histogram(values,varargin)
     end
     mean_values=nanmean(values);
     bootmean=bootstrp(1000,@nanmean,values);
-    pval=min(empirical_p(dividingLine,bootmean,'low'),empirical_p(dividingLine,bootmean,'high'));
+    pval=empirical_p(dividingLine,bootmean);
     if pval<0.05
         sigstring='*';
         if pval<0.01
